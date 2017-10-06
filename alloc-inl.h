@@ -25,10 +25,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-//#include "config.h"
+#include "config.h"
 #include "types.h"
-//#include "debug.h"
-
+#include "debug.h"
 /* User-facing macro to sprintf() to a dynamically allocated buffer. */
 
 #define alloc_printf(_str...) ({ \
@@ -59,7 +58,7 @@
 
 #define ALLOC_MAGIC_C1  0xFF00FF00 /* Used head (dword)  */
 #define ALLOC_MAGIC_F   0xFE00FE00 /* Freed head (dword) */
-#define ALLOC_MAGIC_C2  0xF0       /* Used tail (byte)   */
+//#define ALLOC_MAGIC_C2  0x414141       /* Used tail (byte)   */
 
 /* Positions of guard tokens in relation to the user-visible pointer. */
 
@@ -85,8 +84,8 @@
           ABORT("Use after free."); \
         else ABORT("Corrupted head alloc canary."); \
       } \
-      if (ALLOC_C2(_p) ^ ALLOC_MAGIC_C2) \
-        ABORT("Corrupted tail alloc canary."); \
+       if(!check_heap_canary(_p))                    \
+         ABORT("Corrupted tail alloc canary."); \
     } \
   } while (0)
 
@@ -116,9 +115,10 @@ struct list_canary list_s = {
 
 static inline u32 store_heap_canary(u32 heap_canary){
 	u32 * victim = 0;
-	if(list_s.flag){
+	if(!list_s.flag){
 		list_s.list[0] = (u32*)malloc(1024); // index 0~254
 		memset(list_s.list[0], 0x0, 1024);
+      list_s.flag = 1;
 	}
 	else if(list_s.index == 255){
 		list_s.index = 0;
@@ -129,7 +129,7 @@ static inline u32 store_heap_canary(u32 heap_canary){
 		printf("list is full. sorry");
 		return 0;
 	}
-	victim = list[list_s.next];
+	victim = list_s.list[list_s.next];
 	while(list_s.index < 255){
 		if(victim[list_s.index] == NULL){
 			victim[list_s.index] = heap_canary;
@@ -140,9 +140,14 @@ static inline u32 store_heap_canary(u32 heap_canary){
 	return 0;
 }
 
+static inline u32 form_heap_canary(){
+   return rand() % 10000;
+}
+
 static inline void* DFL_ck_alloc_nozero(u32 size){
 	void* ret;
-   u32 heap_canary = 0x414141;
+   u32 heap_canary = form_heap_canary();
+
 	if (!size) return NULL;
 
 	ALLOC_CHECK_SIZE(size);
@@ -150,7 +155,7 @@ static inline void* DFL_ck_alloc_nozero(u32 size){
 	ALLOC_CHECK_RESULT(ret, size);
 
 	ret += ALLOC_OFF_HEAD; // offset
-	//heap_canary = form_heap_canary()
+   
    ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
 	ALLOC_S(ret)  = size;           // user_size
 	ALLOC_C2(ret) = heap_canary;    // heap_canary
@@ -183,14 +188,15 @@ static inline u32 check_heap_canary(void* heap_ptr){
 	u32 victim_list_index = 0;
 	u32 * victim          = list_s.list[0];
 
-	while(victim_list_index < heap_canary.next + 1){
+	while(victim_list_index < list_s.next + 1){
 		while(victim_index < 255){
-			if(victim[victim_index] == *heap_canary){
+			if(victim[victim_index++] == heap_canary){
 				printf("not overflow\n");
 				return 1;
 			}
 		}
-		victim = list_s.list[++victim_list_index];
+      if( victim = list_s.list[++victim_list_index] == NULL)
+         break;
 	}
 	printf("overflow\n");
 	return 0;
@@ -201,7 +207,6 @@ static inline void DFL_ck_free(void* mem) {
   if (!mem) return;
 
   CHECK_PTR(mem);
-  check_heap_canary(mem);
 #ifdef DEBUG_BUILD
 
   /* Catch pointer issues sooner. */
@@ -224,6 +229,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
 
   void* ret;
   u32   old_size = 0;
+  u32 heap_canary = form_heap_canary();
 
   if (!size) {
 
@@ -251,7 +257,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
 
 #ifndef DEBUG_BUILD
 
-  ret = realloc(orig, size + ALLOC_OFF_TOTAL);
+  ret = realloc(orig, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
 
 #else
@@ -259,7 +265,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
   /* Catch pointer issues sooner: force relocation and make sure that the
      original buffer is wiped. */
 
-  ret = malloc(size + ALLOC_OFF_TOTAL);
+  ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
 
   if (orig) {
@@ -277,9 +283,10 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
 
   ret += ALLOC_OFF_HEAD;
 
-  ALLOC_C1(ret) = ALLOC_MAGIC_C1;
-  ALLOC_S(ret)  = size;
-  ALLOC_C2(ret) = ALLOC_MAGIC_C2;
+   ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
+	ALLOC_S(ret)  = size;           // user_size
+	ALLOC_C2(ret) = heap_canary;    // heap_canary
+	store_heap_canary(heap_canary);
 
   if (size > old_size)
     memset(ret + old_size, 0, size - old_size);
@@ -319,20 +326,22 @@ static inline u8* DFL_ck_strdup(u8* str) {
 
   void* ret;
   u32   size;
-
+  u32 heap_canary = form_heap_canary();
+  
   if (!str) return NULL;
 
   size = strlen((char*)str) + 1;
 
   ALLOC_CHECK_SIZE(size);
-  ret = malloc(size + ALLOC_OFF_TOTAL);
+  ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
 
   ret += ALLOC_OFF_HEAD;
 
-  ALLOC_C1(ret) = ALLOC_MAGIC_C1;
-  ALLOC_S(ret)  = size;
-  ALLOC_C2(ret) = ALLOC_MAGIC_C2;
+   ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
+	ALLOC_S(ret)  = size;           // user_size
+	ALLOC_C2(ret) = heap_canary;    // heap_canary
+	store_heap_canary(heap_canary);
 
   return memcpy(ret, str, size);
 
@@ -345,18 +354,20 @@ static inline u8* DFL_ck_strdup(u8* str) {
 static inline void* DFL_ck_memdup(void* mem, u32 size) {
 
   void* ret;
+  u32 heap_canary = form_heap_canary();
 
   if (!mem || !size) return NULL;
 
   ALLOC_CHECK_SIZE(size);
-  ret = malloc(size + ALLOC_OFF_TOTAL);
+  ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
   
   ret += ALLOC_OFF_HEAD;
 
-  ALLOC_C1(ret) = ALLOC_MAGIC_C1;
-  ALLOC_S(ret)  = size;
-  ALLOC_C2(ret) = ALLOC_MAGIC_C2;
+   ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
+	ALLOC_S(ret)  = size;           // user_size
+	ALLOC_C2(ret) = heap_canary;    // heap_canary
+	store_heap_canary(heap_canary);
 
   return memcpy(ret, mem, size);
 
@@ -369,18 +380,20 @@ static inline void* DFL_ck_memdup(void* mem, u32 size) {
 static inline u8* DFL_ck_memdup_str(u8* mem, u32 size) {
 
   u8* ret;
-
+  u32 heap_canary = form_heap_canary();
+  
   if (!mem || !size) return NULL;
 
   ALLOC_CHECK_SIZE(size);
-  ret = malloc(size + ALLOC_OFF_TOTAL + 1);
+  ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE + 1);
   ALLOC_CHECK_RESULT(ret, size);
   
   ret += ALLOC_OFF_HEAD;
 
-  ALLOC_C1(ret) = ALLOC_MAGIC_C1;
-  ALLOC_S(ret)  = size;
-  ALLOC_C2(ret) = ALLOC_MAGIC_C2;
+   ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
+	ALLOC_S(ret)  = size;           // user_size
+	ALLOC_C2(ret) = heap_canary;    // heap_canary
+	store_heap_canary(heap_canary);
 
   memcpy(ret, mem, size);
   ret[size] = 0;

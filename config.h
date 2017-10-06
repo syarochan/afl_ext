@@ -1,4 +1,4 @@
-//
+/*
    american fuzzy lop - vaguely configurable bits
    ----------------------------------------------
 
