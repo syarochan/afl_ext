@@ -115,6 +115,8 @@ struct list_canary list_s = {
 
 static inline u32 store_heap_canary(u32 heap_canary){
 	u32 * victim = 0;
+   u32 more = 0;
+
 	if(!list_s.flag){
 		list_s.list[0] = (u32*)malloc(1024); // index 0~254
 		memset(list_s.list[0], 0x0, 1024);
@@ -122,21 +124,32 @@ static inline u32 store_heap_canary(u32 heap_canary){
 	}
 	else if(list_s.index == 255){
 		list_s.index = 0;
-		list_s.list[++list_s.next] = (u32*)malloc(1024); // index 0~254
-		memset(list_s.list[list_s.next], 0x0, 1024);
+      if(!more){
+         more++;
+         goto list_loop;
+      }
 	}
 	else if(list_s.next == 255){
 		printf("list is full. sorry");
 		return 0;
 	}
+list_loop:
 	victim = list_s.list[list_s.next];
 	while(list_s.index < 255){
 		if(victim[list_s.index] == NULL){
 			victim[list_s.index] = heap_canary;
 			return 1;
 		}
-		list_s.index++;
+      list_s.index++;
 	}
+   if(more){
+      list_s.index++;
+		list_s.list[++list_s.next] = (u32*)malloc(1024); // index 0~254
+		memset(list_s.list[list_s.next], 0x0, 1024);
+      more = 0;
+      goto list_loop;
+   }
+
 	return 0;
 }
 
@@ -192,6 +205,7 @@ static inline u32 check_heap_canary(void* heap_ptr){
 		while(victim_index < 255){
 			if(victim[victim_index++] == heap_canary){
 				printf("not overflow\n");
+            victim[victim_index - 1 ] = NULL; //heap_ptr list canary is null
 				return 1;
 			}
 		}
