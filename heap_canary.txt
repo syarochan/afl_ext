@@ -1,4 +1,4 @@
-・ランダムではない状態で検知できるようにする。
+//・ランダムではない状態で検知できるようにする。
 ・ランダムな状態で検知できるようにする。
 ・headを用いて、heap_canaryの場所を一発で検索できるようにする。
 ・heap_canary_listのフラグメント問題
@@ -15,8 +15,10 @@ struct list_canary{
 malloc(chk_malloc)でheap_canary(3byte+null)作成、list_canaryに格納
 ・mallocするときに、heap_canaryのサイズ分を入れて一番後ろに代入する。
 # define HEAP_CANARY_SIZE 4
+
 static inline void* DFL_ck_alloc_nozero(u32 size){
 	void* ret;
+   u32 heap_canary = form_heap_canary();
 
 	if (!size) return NULL;
 
@@ -25,47 +27,73 @@ static inline void* DFL_ck_alloc_nozero(u32 size){
 	ALLOC_CHECK_RESULT(ret, size);
 
 	ret += ALLOC_OFF_HEAD; // offset
-	// heap_canary = form_heap_canary()
-	ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
+   
+   ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
 	ALLOC_S(ret)  = size;           // user_size
-	ALLOC_C2(ret) = heap_canary; 	// heap_canary
-	store_heap_canary(heap_canary)
-	
+	ALLOC_C2(ret) = heap_canary;    // heap_canary
+	store_heap_canary(heap_canary);
+
 	return ret;
 
 }
 
-・form_heap_canaryでheap_canaryを生成する。
-u32 form_heap_canary(){
+その他、DFL_ck_alloc_nozeroと同じような実装をしている関数
+DFL_ck_realloc
+DFL_ck_realloc_block
+DFL_ck_strdup
+DFL_ck_memdup
+DFL_ck_memdup_str
+DFL_ck_free
 
+
+・form_heap_canaryでheap_canaryを生成する。
+static inline u32 form_heap_canary(){
+   return rand() % 10000;
 }
+
 ・生成したheap_canaryをlistの空いている場所に格納する。
 ・list_canaryのheap_canaryスペースを確保、store_heap_canaryを使ってheap_canaryを格納
 成功:1 失敗:0
 失敗したらもう一回試す。
-u32 store_heap_canary(u32 heap_canary){
+moreフラグでindexが255になったときに、もう一回listにNULLがあるか確かめる。そのとき、NULLがなかったら、listの数を増やす。前のlistには現在のソースでは戻らない(フラグメント問題)
+
+static inline u32 store_heap_canary(u32 heap_canary){
 	u32 * victim = 0;
-	if(list_canary.flag){
-		list_canary.list[0] = (u32*)malloc(1024); // index 0~254
-		memset(list_canary.list[0], 0x0, ALLOC_S(list_canary.list[0]));
+   u32 more = 0;
+
+	if(!list_s.flag){
+		list_s.list[0] = (u32*)malloc(1024); // index 0~254
+		memset(list_s.list[0], 0x0, 1024);
+      list_s.flag = 1;
 	}
-	else if(list_canary.index == 255){
-		list_canary.index = 0;
-		list_canary.list[++list_canary.next] = (u32*)malloc(1024); // index 0~254
-		memset(list_canary.list[list_canary.next], 0x0, ALLOC_S(list_canary.list[list_canary.next]));
+	else if(list_s.index == 255){
+		list_s.index = 0;
+      if(!more){
+         more++;
+         goto list_loop;
+      }
 	}
-	else if(list_canary.next == 255){
+	else if(list_s.next == 255){
 		printf("list is full. sorry");
 		return 0;
 	}
-	victim = list[list_canary.next];
-	while(list_canary.index < 255){
-		if(victim[list_canary.index] == NULL){
-			victim[list_canary.index] = heap_canary;
+list_loop:
+	victim = list_s.list[list_s.next];
+	while(list_s.index < 255){
+		if(victim[list_s.index] == NULL){
+			victim[list_s.index] = heap_canary;
 			return 1;
 		}
-		list_canary.index++;
+      list_s.index++;
 	}
+   if(more){
+      list_s.index++;
+		list_s.list[++list_s.next] = (u32*)malloc(1024); // index 0~254
+		memset(list_s.list[list_s.next], 0x0, 1024);
+      more = 0;
+      goto list_loop;
+   }
+
 	return 0;
 }
 
@@ -74,44 +102,42 @@ free(chk_free)でheap_canaryをzeroで初期化する。
 #define ALLOC_C2(_ptr)  (((u32*)(_ptr))[ALLOC_S(_ptr) / 4]) // 一番最後の場所にheap_canaryを入れる。
 freeされる前のheap_ptrからheap_canaryが格納されている場所を特定する。
 特定したheap_canaryがlistに存在するか、確かめる
+overflowしていないのであれば、heap_canaryをNULLにする。
 overflow:0 not overflow:1
-u32 check_heap_canary(void* heap_ptr){
+static inline u32 check_heap_canary(void* heap_ptr){
 	u32 *heap_canary      = ALLOC_C2(heap_ptr);
 	u32 victim_index      = 0;
 	u32 victim_list_index = 0;
-	u32 * victim          = list_canary.list[0];
+	u32 * victim          = list_s.list[0];
 
-	while(victim_list_index < heap_canary.next + 1){
+	while(victim_list_index < list_s.next + 1){
 		while(victim_index < 255){
-			if(victim[victim_index] == *heap_canary){
-				printf("not overflow\n")
+			if(victim[victim_index++] == heap_canary){
+				printf("not overflow\n");
+            victim[victim_index - 1 ] = NULL; //heap_ptr list canary is null
 				return 1;
 			}
 		}
-		victim = list_canary.list[++victim_list_index];
+      if( victim = list_s.list[++victim_list_index] == NULL)
+         break;
 	}
-	printf("overflow\n")
+	printf("overflow\n");
 	return 0;
 }
 
-static inline void DFL_ck_free(void* mem) {
+CHECK_PTRでcheck_heap_canaryを行う。
+#define CHECK_PTR(_p) do { \
+    if (_p) { \
+      if (ALLOC_C1(_p) ^ ALLOC_MAGIC_C1) {\
+        if (ALLOC_C1(_p) == ALLOC_MAGIC_F) \
+          ABORT("Use after free."); \
+        else ABORT("Corrupted head alloc canary."); \
+      } \
+       if(!check_heap_canary(_p))                    \
+         ABORT("Corrupted tail alloc canary."); \
+    } \
+  } while (0)
 
-   if (!mem) return;
-
-   CHECK_PTR(mem);
-   check_heap_canary(mem);
- #ifdef DEBUG_BUILD
-
-   /* Catch pointer issues sooner. */
-   memset(mem, 0xFF, ALLOC_S(mem));
-
- #endif /* DEBUG_BUILD */
-
-   ALLOC_C1(mem) = ALLOC_MAGIC_F;
-
-   free(mem - ALLOC_OFF_HEAD);
-
-}
 
 AFLで使われるheadを改造する。
 ・最初の1bitは1:use or 0:free, 3bit+2byteはindex, 残りの1byteはlist_index
