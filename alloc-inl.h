@@ -58,13 +58,11 @@
 
 #define ALLOC_MAGIC_C1  0xFF00FF00 /* Used head (dword)  */
 #define ALLOC_MAGIC_F   0xFE00FE00 /* Freed head (dword) */
-//#define ALLOC_MAGIC_C2  0x414141       /* Used tail (byte)   */
 
 /* Positions of guard tokens in relation to the user-visible pointer. */
 
 #define ALLOC_C1(_ptr)  (((u32*)(_ptr))[-2])
 #define ALLOC_S(_ptr)   (((u32*)(_ptr))[-1])
-//#define ALLOC_C2(_ptr)  (((u8*)(_ptr))[ALLOC_S(_ptr)])
 #define ALLOC_C2(_ptr)  (((u32*)(_ptr))[ALLOC_S(_ptr) / 4])
 
 #define ALLOC_OFF_HEAD  8
@@ -143,7 +141,7 @@ list_loop:
       list_s.index++;
 	}
    if(more){
-      list_s.index++;
+      list_s.index = 0;
 		list_s.list[++list_s.next] = (u32*)malloc(1024); // index 0~254
 		memset(list_s.list[list_s.next], 0x0, 1024);
       more = 0;
