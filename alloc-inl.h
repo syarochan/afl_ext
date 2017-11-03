@@ -56,9 +56,8 @@
 
 /* Magic tokens used to mark used / freed chunks. */
 
-#define ALLOC_MAGIC_C1  0xFF00FF00 /* Used head (dword)  */
-#define ALLOC_MAGIC_F   0xFE00FE00 /* Freed head (dword) */
-
+//#define ALLOC_MAGIC_C1  0xFF00FF00 /* Used head (dword)  */
+//#define ALLOC_MAGIC_F   0xFE00FE00 /* Freed head (dword) */
 /* Positions of guard tokens in relation to the user-visible pointer. */
 
 #define ALLOC_C1(_ptr)  (((u32*)(_ptr))[-2])
@@ -67,7 +66,22 @@
 
 #define ALLOC_OFF_HEAD  8
 #define ALLOC_OFF_TOTAL (ALLOC_OFF_HEAD + 1)
-#define HEAP_CANARY_SIZE 4 // heap_canary size
+#define HEAP_CANARY_SIZE 4                         // heap_canary size
+
+// read header
+#define HEAD_PTR(_ptr)  ALLOC_S(_ptr) >> 31        // use or free
+#define IDX_PTR(_ptr) (ALLOC_S(_ptr) << 1) >> 21   // index
+#define LIST_PTR(_ptr) (ALLOC_S(_ptr) << 12) >> 24 // list_index
+
+// write header
+#define USED_SET(_ptr) (ALLOC_S(_ptr)  & (1 << 31))
+#define FREED_SET(_ptr) (ALLOC_S(_ptr)  & (0 << 31))
+
+#define IDX_SET(_ptr, index) (ALLOC_S(_ptr) & (0x7ff << 20)) \
+	(ALLOC_S(_ptr)  ^ (index << 20))
+
+#define LIST_SET(_ptr, list) (ALLOC_S(_ptr) & 0xff << 12) \
+	(ALLOC_S(_ptr)  ^ (list << 12))
 
 /* Allocator increments for ck_realloc_block(). */
 
@@ -77,8 +91,8 @@
 
 #define CHECK_PTR(_p) do { \
     if (_p) { \
-      if (ALLOC_C1(_p) ^ ALLOC_MAGIC_C1) {\
-        if (ALLOC_C1(_p) == ALLOC_MAGIC_F) \
+      if (HEAD_PTR(_p)) {\
+        if (!HEAD_PTR(_p)) \
           ABORT("Use after free."); \
         else ABORT("Corrupted head alloc canary."); \
       } \
@@ -93,27 +107,34 @@
     _tmp; \
   })
 
-
 /* Allocate a buffer, explicitly not zeroing it. Returns NULL for zero-sized
    requests. */
 
+struct free_list{
+   u16 index;
+   u8 list_idx;
+   u32* fd;
+}
+
 struct list_canary{
-	u32 index;        // heap_canary index
-	u32 next;        // next list
-	u32 flag;        // init:0, not yet:1
-	u32 * list[256];// heap_canary_ptr
+	u32 index;              // heap_canary index
+	u32 next;               // next list
+	u32 flag;               // init:0, not yet:1
+	u32 * list[256];        // heap_canary_ptr
+   free_list * free_list   // free heap canary list
 };
 
 struct list_canary list_s = {
 	0,        // heap_canary index
 	0,        // next list
 	0,        // init:0, not yet:1
-	0        // heap_canary_ptr
+	0,        // heap_canary_ptr
+   0         // free heap canary list
 };
 
-static inline u32 store_heap_canary(u32 heap_canary){
+static inline u32 store_heap_canary(u32 heap_canaryi, u32* ptr){
 	u32 * victim = 0;
-   u32 more = 0;
+   free_list free = 0;
 
 	if(!list_s.flag){
 		list_s.list[0] = (u32*)malloc(1024); // index 0~254
@@ -122,37 +143,59 @@ static inline u32 store_heap_canary(u32 heap_canary){
 	}
 	else if(list_s.index == 255){
 		list_s.index = 0;
-      if(!more){
-         more++;
-         goto list_loop;
-      }
 	}
 	else if(list_s.next == 255){
 		printf("list is full. sorry");
 		return 0;
 	}
-list_loop:
-	victim = list_s.list[list_s.next];
-	while(list_s.index < 255){
-		if(victim[list_s.index] == NULL){
-			victim[list_s.index] = heap_canary;
-			return 1;
-		}
+   // pick up free heap canary list
+   if(free = list_canary->free_list != NULL){
+      // set next free canary list and set heap canary
+      list_canary->free_list = free->fd;
+      victim = list_s.list[free->list_idx];
+      victim[free->index] = heap_canary;
+      // set header
+      IDX_SET(ptr, free->index);
+      LIST_SET(ptr, free->list_idx);
+      USED_SET(ptr);
+      ALLOC_S(ptr)  = size;           // user_size
+      ALLOC_C2(ptr) = heap_canary;    // heap_canary
+      return 1;
+   }
+   victim = list_s.list[list_s.next];
+   while(list_s.index < 255){
+      if(victim[list_s.index] == NULL){
+         victim[list_s.index] = heap_canary;
+         // set header
+         IDX_SET(ptr, list_s.index);
+         LIST_SET(ptr, list_s.next);
+         USED_SET(ptr);
+         ALLOC_S(ptr)  = size;           // user_size
+         ALLOC_C2(ptr) = heap_canary;    // heap_canary
+         return 1;
+      }
       list_s.index++;
-	}
-   if(more){
-      list_s.index = 0;
-		list_s.list[++list_s.next] = (u32*)malloc(1024); // index 0~254
-		memset(list_s.list[list_s.next], 0x0, 1024);
-      more = 0;
-      goto list_loop;
    }
 
-	return 0;
+   return 0;
 }
-
 static inline u32 form_heap_canary(){
    return rand() % 10000;
+}
+
+static inline u32 check_heap_canary(u32* ptr){
+   u32 heap_canary       = ALLOC_C2(heap_ptr);
+   u32 victim_index      = IDX_PTR(ptr);
+   u32 victim_list_index = LIST_PTR(ptr);
+   u32 * victim          = list_s.list[victim_list_index];
+
+      if(victim[victim_index] == heap_canary){
+         printf("not overflow\n");
+         return 1;
+      }
+      else
+         printf("overflow\n");
+   return 0;
 }
 
 static inline void* DFL_ck_alloc_nozero(u32 size){
@@ -167,10 +210,7 @@ static inline void* DFL_ck_alloc_nozero(u32 size){
 
 	ret += ALLOC_OFF_HEAD; // offset
    
-   ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
-	ALLOC_S(ret)  = size;           // user_size
-	ALLOC_C2(ret) = heap_canary;    // heap_canary
-	store_heap_canary(heap_canary);
+   store_heap_canary(heap_canary, ret);
 
 	return ret;
 
@@ -189,30 +229,8 @@ static inline void* DFL_ck_alloc(u32 size) {
 
 }
 
-
 /* Free memory, checking for double free and corrupted heap. When DEBUG_BUILD
    is set, the old memory will be also clobbered with 0xFF. */
-
-static inline u32 check_heap_canary(void* heap_ptr){
-	u32 *heap_canary      = ALLOC_C2(heap_ptr);
-	u32 victim_index      = 0;
-	u32 victim_list_index = 0;
-	u32 * victim          = list_s.list[0];
-
-	while(victim_list_index < list_s.next + 1){
-		while(victim_index < 255){
-			if(victim[victim_index++] == heap_canary){
-				printf("not overflow\n");
-            victim[victim_index - 1 ] = NULL; //heap_ptr list canary is null
-				return 1;
-			}
-		}
-      if( victim = list_s.list[++victim_list_index] == NULL)
-         break;
-	}
-	printf("overflow\n");
-	return 0;
-}
 
 static inline void DFL_ck_free(void* mem) {
 
@@ -225,13 +243,12 @@ static inline void DFL_ck_free(void* mem) {
   memset(mem, 0xFF, ALLOC_S(mem));
 
 #endif /* DEBUG_BUILD */
-
-  ALLOC_C1(mem) = ALLOC_MAGIC_F;
-
+   FREED_SET(ptr);
+// ALLOC_C1(mem) = ALLOC_MAGIC_F;
+// free_heap_canary();
   free(mem - ALLOC_OFF_HEAD);
 
 }
-
 
 /* Re-allocate a buffer, checking for issues and zeroing any newly-added tail.
    With DEBUG_BUILD, the buffer is always reallocated to a new addresses and the
