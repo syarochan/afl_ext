@@ -55,9 +55,6 @@
   } while (0)
 
 /* Magic tokens used to mark used / freed chunks. */
-
-//#define ALLOC_MAGIC_C1  0xFF00FF00 /* Used head (dword)  */
-//#define ALLOC_MAGIC_F   0xFE00FE00 /* Freed head (dword) */
 /* Positions of guard tokens in relation to the user-visible pointer. */
 
 #define ALLOC_C1(_ptr)  (((u32*)(_ptr))[-2])
@@ -69,19 +66,15 @@
 #define HEAP_CANARY_SIZE 4                         // heap_canary size
 
 // read header
-#define HEAD_PTR(_ptr)  ALLOC_S(_ptr) >> 31        // use or free
-#define IDX_PTR(_ptr) (ALLOC_S(_ptr) << 1) >> 21   // index
-#define LIST_PTR(_ptr) (ALLOC_S(_ptr) << 12) >> 24 // list_index
+#define HEAD_PTR(_ptr)  ALLOC_C1(_ptr) >> 31        // use or free
+#define IDX_PTR(_ptr) (ALLOC_C1(_ptr) << 1) >> 21   // index
+#define LIST_PTR(_ptr) (ALLOC_C1(_ptr) << 12) >> 24 // list_index
 
 // write header
-#define USED_SET(_ptr) (ALLOC_S(_ptr)  & (1 << 31))
-#define FREED_SET(_ptr) (ALLOC_S(_ptr)  & (0 << 31))
-
-#define IDX_SET(_ptr, index) ALLOC_S(_ptr) & (0x7ff << 20) \
-   ALLOC_S(_ptr)  ^ (index << 20)
-
-#define LIST_SET(_ptr, list) ALLOC_S(_ptr) & 0xff << 12 \
-   ALLOC_S(_ptr)  ^ (list << 12)
+#define USED_SET(_ptr) (ALLOC_C1(_ptr)  | (1 << 31))
+#define FREED_SET(_ptr) (ALLOC_C1(_ptr)  & ~(0 << 31))
+#define IDX_SET(_ptr, index) (ALLOC_C1(_ptr) & ~(0x7ff << 20)) | (index << 20)
+#define LIST_SET(_ptr, list) (ALLOC_C1(_ptr) & ~(0xff << 12)) | (list << 12)
 
 /* Allocator increments for ck_realloc_block(). */
 
@@ -113,7 +106,7 @@
 struct free_list{
    u16 index;
    u8 list_idx;
-   u32* fd;
+   struct free_list * fd;
 };
 
 struct list_canary{
@@ -135,6 +128,7 @@ struct list_canary list_s = {
 static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 	u32 * victim = 0;
    struct free_list * free = 0;
+   u32 header = 0;
 
 	if(!list_s.flag){
 		list_s.list[0] = (u32*)malloc(1024); // index 0~254
@@ -155,11 +149,13 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
       victim = list_s.list[free->list_idx];
       victim[free->index] = heap_canary;
       // set header
-      IDX_SET(ptr, free->index);
-      LIST_SET(ptr, free->list_idx);
-      USED_SET(ptr);
+      header = IDX_SET(ptr, free->index);
+      header += LIST_SET(ptr, free->list_idx);
+      header += USED_SET(ptr);
+      ALLOC_C1(ptr) = header;
       ALLOC_S(ptr)  = size;           // user_size
       ALLOC_C2(ptr) = heap_canary;    // heap_canary
+      free(free);
       return 1;
    }
    victim = list_s.list[list_s.next];
@@ -167,9 +163,10 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
       if(victim[list_s.index] == NULL){
          victim[list_s.index] = heap_canary;
          // set header
-         IDX_SET(ptr, list_s.index);
-         LIST_SET(ptr, list_s.next);
-         USED_SET(ptr);
+         header = IDX_SET(ptr, list_s.index);
+         header += LIST_SET(ptr, list_s.next);
+         header += USED_SET(ptr);
+         ALLOC_C1(ptr) = header;
          ALLOC_S(ptr)  = size;           // user_size
          ALLOC_C2(ptr) = heap_canary;    // heap_canary
          return 1;
@@ -205,7 +202,7 @@ static inline u32 free_heap_canary(void* ptr){
    u32 * victim          = list_s.list[victim_list_index];
    struct free_list * free = (struct free_list *)malloc(sizeof(struct free_list));
    
-   memset(free, NULL, sizeof(struct free_list));
+   memset(free, 0, sizeof(struct free_list));
    
    victim[victim_index] = NULL; // heap canary init
    free->fd = list_s.free_list; // queue
