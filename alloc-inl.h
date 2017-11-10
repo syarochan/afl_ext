@@ -110,10 +110,11 @@ struct free_list{
 };
 
 struct list_canary{
-	u32 index;              // heap_canary index
-	u32 next;               // next list
-	u32 flag;               // init:0, not yet:1
-	u32 * list[256];        // heap_canary_ptr
+	u32 index;                      // heap_canary index
+	u32 next;                       // next list
+	u32 flag;                       // init:0, not yet:1
+	u32 * list[256];                // heap_canary_ptr
+   u32 queue_num;                  // count free list 
    struct free_list * free_list;   // free heap canary list
 };
 
@@ -122,12 +123,13 @@ struct list_canary list_s = {
 	0,        // next list
 	0,        // init:0, not yet:1
 	0,        // heap_canary_ptr
+   0,        // count free list
    0         // free heap canary list
 };
 
 static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 	u32 * victim = 0;
-   struct free_list * f_list = 0;
+   struct free_list * f_list = list_s.free_list;
    u32 header = 0;
 
 	if(!list_s.flag){
@@ -143,16 +145,17 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 		return 0;
 	}
    // pick up free heap canary list
-   if(f_list = list_s.free_list != NULL){
+   if(list_s.queue_num > 0){
       // set next free canary list and set heap canary
       list_s.free_list = f_list->fd;
+      list_s.queue_num--;
       victim = list_s.list[f_list->list_idx];
       victim[f_list->index] = heap_canary;
       // set header
       header = IDX_SET(ptr, f_list->index);
       header += LIST_SET(ptr, f_list->list_idx);
       header += USED_SET(ptr);
-      ALLOC_C1(ptr) = header;
+      ALLOC_C1(ptr) = header;         // header
       ALLOC_S(ptr)  = size;           // user_size
       ALLOC_C2(ptr) = heap_canary;    // heap_canary
       free(f_list);
@@ -200,25 +203,28 @@ static inline u32 free_heap_canary(void* ptr){
    u32 victim_index      = IDX_PTR(ptr);
    u32 victim_list_index = LIST_PTR(ptr);
    u32 * victim          = list_s.list[victim_list_index];
-   struct free_list * f_victim = 0;
+   u32 cnt;
+   struct free_list * f_victim = list_s.free_list;
    struct free_list * f_list = (struct free_list *)malloc(sizeof(struct free_list));
    
    memset(f_list, 0, sizeof(struct free_list));
    victim[victim_index] = NULL; // heap canary init
 
    // cache free list memory rule is queue
-   if(f_victim = list_s.free_list != NULL){
-      while(f_victim->fd != (struct free_list *)NULL){ // bug? mov eax, 1
+   if(list_s.queue_num > 0){
+      for(cnt = 0; cnt < list_s.queue_num; cnt++ ){
+         if(!f_victim->fd)
+            break;
          f_victim = f_victim->fd;
       }
-      f_victim->fd = f_list;
+      f_victim->fd     = f_list;
    }else{
       list_s.free_list = f_list;
    }
-   f_list->index = victim_index;
+   f_list->index    = victim_index;
    f_list->list_idx = victim_list_index;
-   f_list->fd = NULL;
-   free(f_victim);
+   f_list->fd       = NULL;
+   list_s.queue_num++;
 
    return 0;
 
