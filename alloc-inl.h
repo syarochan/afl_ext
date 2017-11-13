@@ -71,6 +71,7 @@
 #define LIST_PTR(_ptr) (ALLOC_C1(_ptr) & (0xff << 12)) >> 12 // list_index
 
 // write header
+#define CLEAR_SET(_ptr) (ALLOC_C1(_ptr) & ~(0xffffffff))
 #define USED_SET(_ptr) (ALLOC_C1(_ptr)  | (1 << 31))
 #define FREED_SET(_ptr) (ALLOC_C1(_ptr)  & ~(0 << 31))
 #define IDX_SET(_ptr, index) (ALLOC_C1(_ptr) & ~(0x7ff << 20)) | (index << 20)
@@ -137,6 +138,7 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 	}
 	else if(list_s.index == 256){
 		list_s.index = 0;
+      list_s.list[++list_s.next] = (u32*)malloc(1024);
 	}
 	else if(list_s.next == 256 && list_s.free_list == NULL){
 		printf("list is full. sorry");
@@ -149,6 +151,7 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
       victim = list_s.list[f_list->list_idx];
       victim[f_list->index] = heap_canary;
       // set header
+      ALLOC_C1(ptr) = CLEAR_SET(ptr);
       header = IDX_SET(ptr, f_list->index);
       header += LIST_SET(ptr, f_list->list_idx);
       header += USED_SET(ptr);
@@ -156,19 +159,24 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
       ALLOC_S(ptr)  = size;           // user_size
       ALLOC_C2(ptr) = heap_canary;    // heap_canary
       free(f_list);
+
       return 1;
    }
-   victim = list_s.list[list_s.next];
+
    while(list_s.index < 256){
+      victim = list_s.list[list_s.next];
       if(victim[list_s.index] == NULL){
          victim[list_s.index] = heap_canary;
          // set header
+         ALLOC_C1(ptr) = CLEAR_SET(ptr);
          header = IDX_SET(ptr, list_s.index);
          header += LIST_SET(ptr, list_s.next);
          header += USED_SET(ptr);
          ALLOC_C1(ptr) = header;
          ALLOC_S(ptr)  = size;           // user_size
          ALLOC_C2(ptr) = heap_canary;    // heap_canary
+         list_s.index++;
+
          return 1;
       }
       list_s.index++;
