@@ -73,7 +73,7 @@
 // write header
 #define CLEAR_SET(_ptr) (ALLOC_C1(_ptr) & ~(0xffffffff))
 #define USED_SET(_ptr) (ALLOC_C1(_ptr)  | (1 << 31))
-#define FREED_SET(_ptr) (ALLOC_C1(_ptr)  & ~(0 << 31))
+#define FREED_SET(_ptr) (ALLOC_C1(_ptr)  & ~(1 << 31))
 #define IDX_SET(_ptr, index) (ALLOC_C1(_ptr) & ~(0x7ff << 20)) | (index << 20)
 #define LIST_SET(_ptr, list) (ALLOC_C1(_ptr) & ~(0xff << 12)) | (list << 12)
 
@@ -165,7 +165,7 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 
    while(list_s.index < 256){
       victim = list_s.list[list_s.next];
-      if(victim[list_s.index] == NULL){
+      if((u32*)victim[list_s.index] == (u32*)NULL){
          victim[list_s.index] = heap_canary;
          // set header
          ALLOC_C1(ptr) = CLEAR_SET(ptr);
@@ -194,7 +194,7 @@ static inline u32 check_heap_canary(void* ptr){
    u32 victim_list_index = LIST_PTR(ptr);
    u32 * victim          = list_s.list[victim_list_index];
 
-      if(victim[victim_index] == heap_canary){
+      if((u32*)victim[victim_index] == (u32*)heap_canary){
          printf("not overflow\n");
          return 1;
       }
@@ -208,12 +208,11 @@ static inline u32 free_heap_canary(void* ptr){
    u32 victim_index      = IDX_PTR(ptr);
    u32 victim_list_index = LIST_PTR(ptr);
    u32 * victim          = list_s.list[victim_list_index];
-   u32 cnt;
    struct free_list * f_victim = list_s.free_list;
    struct free_list * f_list = (struct free_list *)malloc(sizeof(struct free_list));
    
    memset(f_list, 0, sizeof(struct free_list));
-   victim[victim_index] = NULL; // heap canary init
+   victim[victim_index] = (u32)NULL; // heap canary init
 
    // cache free list memory rule is queue
    while(f_victim){
@@ -278,8 +277,7 @@ static inline void DFL_ck_free(void* mem) {
   memset(mem, 0xFF, ALLOC_S(mem));
 
 #endif /* DEBUG_BUILD */
-   FREED_SET(mem);
-// ALLOC_C1(mem) = ALLOC_MAGIC_F;
+  ALLOC_C1(mem) = FREED_SET(mem);
   free_heap_canary(mem);
   free(mem - ALLOC_OFF_HEAD);
 
@@ -307,8 +305,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
     CHECK_PTR(orig);
 
 #ifndef DEBUG_BUILD
-//    ALLOC_C1(orig) = ALLOC_MAGIC_F;
-    FREED_SET(orig);
+    ALLOC_C1(orig) = FREED_SET(orig);
 #endif /* !DEBUG_BUILD */
 
     old_size  = ALLOC_S(orig);
@@ -339,7 +336,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
     memset(orig + ALLOC_OFF_HEAD, 0xFF, old_size);
 
 //    ALLOC_C1(orig + ALLOC_OFF_HEAD) = ALLOC_MAGIC_F;
-    FREED_SET(orig + ALLOC_OFF_HEAD)
+    ALLOC_C1(orig + ALLOC_OFF_HEAD) = FREED_SET(orig + ALLOC_OFF_HEAD)
     free(orig);
 
   }
