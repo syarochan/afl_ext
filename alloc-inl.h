@@ -59,7 +59,16 @@
 
 #define ALLOC_C1(_ptr)  (((u32*)(_ptr))[-2])
 #define ALLOC_S(_ptr)   (((u32*)(_ptr))[-1])
-#define ALLOC_C2(_ptr)  (((u32*)(_ptr))[ALLOC_S(_ptr) / 4])
+#define canary_num(_num) ({ \
+      u32 _tmp = (u32)_num; \
+    if ((u32)_tmp % 4 != 0) {\
+      _tmp += 4; \
+      _tmp;\
+    }\
+    _tmp;\
+  })
+
+#define ALLOC_C2(_ptr)  (((u32*)(_ptr))[canary_num(ALLOC_S(_ptr)) / 4]) //bug
 
 #define ALLOC_OFF_HEAD  8
 #define ALLOC_OFF_TOTAL (ALLOC_OFF_HEAD + 1)
@@ -90,7 +99,7 @@
           ABORT("Use after free."); \
         else ABORT("Corrupted head alloc canary."); \
       } \
-       if(!check_heap_canary(_p))                    \
+       if(check_heap_canary(_p))                    \
          ABORT("Corrupted tail alloc canary."); \
     } \
   } while (0)
@@ -194,12 +203,13 @@ static inline u32 check_heap_canary(void* ptr){
    u32 victim_list_index = LIST_PTR(ptr);
    u32 * victim          = list_s.list[victim_list_index];
 
-      if((u32*)victim[victim_index] == (u32*)heap_canary){
-         printf("not overflow\n");
+      if((u32*)victim[victim_index] != (u32*)heap_canary){
+         printf("overflow\n");
          return 1;
       }
-      else
-         printf("overflow\n");
+//      else
+//         printf("not overflow\n");
+
    return 0;
 }
 
@@ -243,7 +253,7 @@ static inline void* DFL_ck_alloc_nozero(u32 size){
 	ALLOC_CHECK_RESULT(ret, size);
 
 	ret += ALLOC_OFF_HEAD; // offset
-   
+   memset(ret, 0, sizeof(ret));
    store_heap_canary(heap_canary, ret ,size);
 
 	return ret;
