@@ -307,7 +307,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
 
   if (orig) {
 
-//    CHECK_PTR(orig);
+    CHECK_PTR(orig);
 
 #ifndef DEBUG_BUILD
     ALLOC_C1(orig) = FREED_SET(orig);
@@ -325,6 +325,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
 #ifndef DEBUG_BUILD
 
   ret = realloc(orig, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+   memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE );
   ALLOC_CHECK_RESULT(ret, size);
 
 #else
