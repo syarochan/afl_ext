@@ -133,20 +133,22 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
    u32 header = 0;
 
 	if(!list_s.flag){
-		list_s.list[0] = (u32*)malloc(1024); // index 0~254
+		if(!(list_s.list[0] = (u32*)malloc(1024)))
+         ABORT("BAD ALLOC MEMORY"); // index 0~254
 		memset(list_s.list[0], 0x0, 1024);
       list_s.flag = 1;
 	}
 	else if(list_s.index == 256){
 		list_s.index = 0;
-      list_s.list[++list_s.next] = (u32*)malloc(1024);
+      if(!(list_s.list[++list_s.next] = (u32*)malloc(1024)))
+         ABORT("BAD ALLOC MEMORY");
 		memset(list_s.list[list_s.next], 0x0, 1024);
 	}
 	else if(list_s.next == 256 && list_s.free_list == NULL){
       list_s.count++;
       list_s.next = 0;
       list_s.index = 0;
-      if(list_s.count == 0x10){
+      if(list_s.count == 0x2){
 		   ABORT("list is full. sorry");
 		   return 0;
       }
@@ -215,6 +217,8 @@ static inline u32 free_heap_canary(void* ptr){
    u32 * victim          = list_s.list[victim_list_index];
    struct free_list * f_victim = list_s.free_list;
    struct free_list * f_list = (struct free_list *)malloc(sizeof(struct free_list));
+   if(!f_list)
+      ABORT("BAD ALLOC MEMORY");
    
    memset(f_list, 0, sizeof(struct free_list));
    victim[victim_index] = NULL; // heap canary init
@@ -245,6 +249,8 @@ static inline void* DFL_ck_alloc_nozero(u32 size){
 
 	ALLOC_CHECK_SIZE(size);
 	ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+   if(!ret)
+      ABORT("BAD ALLOC MEMORY");
    memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
    ALLOC_CHECK_RESULT(ret, size);
 
@@ -334,6 +340,8 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
      original buffer is wiped. */
 
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+  if(!ret)
+     ABORT("BAD ALLOC MEMORY");
    memset(ret,  0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
 
@@ -399,6 +407,8 @@ static inline u8* DFL_ck_strdup(u8* str) {
 
   ALLOC_CHECK_SIZE(size);
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+  if(!ret)
+     ABORT("BAD ALLOC MEMORY");
   memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
 
@@ -423,6 +433,8 @@ static inline void* DFL_ck_memdup(void* mem, u32 size) {
 
   ALLOC_CHECK_SIZE(size);
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+  if(!ret)
+     ABORT("BAD ALLOC MEMORY");
   memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
   
@@ -447,6 +459,8 @@ static inline u8* DFL_ck_memdup_str(u8* mem, u32 size) {
 
   ALLOC_CHECK_SIZE(size);
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE + 1);
+  if(!ret)
+     ABORT("BAD ALLOC MEMORY");
   memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
   
