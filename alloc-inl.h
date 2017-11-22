@@ -61,12 +61,9 @@
 #define ALLOC_S(_ptr)   (((u32*)(_ptr))[-1])
 #define canary_num(_num) ({ \
       u32 _tmp = (u32)_num; \
-    if ((u32)_tmp % 4 != 0) {\
-      _tmp += 4; \
+    if ((u32)_tmp % 4 != 0) _tmp += 4; \
       _tmp;\
-    }\
-    _tmp;\
-  })
+      })
 
 #define ALLOC_C2(_ptr)  (((u32*)(_ptr))[canary_num(ALLOC_S(_ptr)) / 4]) //bug
 
@@ -75,7 +72,7 @@
 #define HEAP_CANARY_SIZE 4                         // heap_canary size
 
 // read header
-#define HEAD_PTR(_ptr)  (ALLOC_C1(_ptr)  & (1 << 31))        // use or free
+#define HEAD_PTR(_ptr)  (ALLOC_C1(_ptr)  & 0xffffffff) >> 31 // used or freed
 #define IDX_PTR(_ptr) (ALLOC_C1(_ptr) & (0x7ff << 20)) >> 20 // index
 #define LIST_PTR(_ptr) (ALLOC_C1(_ptr) & (0xff << 12)) >> 12 // list_index
 
@@ -94,8 +91,8 @@
 
 #define CHECK_PTR(_p) do { \
     if (_p) { \
-      if (!HEAD_PTR(_p)) {\
-        if (!HEAD_PTR(_p)) \
+      if (HEAD_PTR(_p) ^ 1) {\
+        if (HEAD_PTR(_p) == 0) \
           ABORT("Use after free."); \
         else ABORT("Corrupted head alloc canary."); \
       } \
@@ -123,17 +120,12 @@ struct list_canary{
 	u32 index;                      // heap_canary index
 	u32 next;                       // next list
 	u32 flag;                       // init:0, not yet:1
+   u32 count;                      // list count
 	u32 * list[256];                // heap_canary_ptr
    struct free_list * free_list;   // free heap canary list
 };
 
-struct list_canary list_s = {
-	0,        // heap_canary index
-	0,        // next list
-	0,        // init:0, not yet:1
-	0,        // heap_canary_ptr
-   0         // free heap canary list
-};
+struct list_canary list_s = {0, 0, 0, 0, {0}, 0};
 
 static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 	u32 * victim = 0;
@@ -148,10 +140,16 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 	else if(list_s.index == 256){
 		list_s.index = 0;
       list_s.list[++list_s.next] = (u32*)malloc(1024);
+		memset(list_s.list[list_s.next], 0x0, 1024);
 	}
 	else if(list_s.next == 256 && list_s.free_list == NULL){
-		printf("list is full. sorry");
-		return 0;
+      list_s.count++;
+      list_s.next = 0;
+      list_s.index = 0;
+      if(list_s.count == 0x10){
+		   ABORT("list is full. sorry");
+		   return 0;
+      }
 	}
    // pick up free heap canary list
    if(list_s.free_list > 0){
@@ -174,7 +172,7 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 
    while(list_s.index < 256){
       victim = list_s.list[list_s.next];
-      if((u32*)victim[list_s.index] == (u32*)NULL){
+      if(victim[list_s.index] == NULL){
          victim[list_s.index] = heap_canary;
          // set header
          ALLOC_C1(ptr) = CLEAR_SET(ptr);
@@ -207,14 +205,11 @@ static inline u32 check_heap_canary(void* ptr){
          printf("overflow\n");
          return 1;
       }
-//      else
-//         printf("not overflow\n");
 
    return 0;
 }
 
 static inline u32 free_heap_canary(void* ptr){
-   u32 heap_canary       = ALLOC_C2(ptr);
    u32 victim_index      = IDX_PTR(ptr);
    u32 victim_list_index = LIST_PTR(ptr);
    u32 * victim          = list_s.list[victim_list_index];
@@ -222,7 +217,7 @@ static inline u32 free_heap_canary(void* ptr){
    struct free_list * f_list = (struct free_list *)malloc(sizeof(struct free_list));
    
    memset(f_list, 0, sizeof(struct free_list));
-   victim[victim_index] = (u32)NULL; // heap canary init
+   victim[victim_index] = NULL; // heap canary init
 
    // cache free list memory rule is queue
    while(f_victim){
@@ -250,10 +245,10 @@ static inline void* DFL_ck_alloc_nozero(u32 size){
 
 	ALLOC_CHECK_SIZE(size);
 	ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
-	ALLOC_CHECK_RESULT(ret, size);
+   memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+   ALLOC_CHECK_RESULT(ret, size);
 
 	ret += ALLOC_OFF_HEAD; // offset
-   memset(ret, 0, sizeof(ret));
    store_heap_canary(heap_canary, ret ,size);
 
 	return ret;
@@ -312,7 +307,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
 
   if (orig) {
 
-    CHECK_PTR(orig);
+//    CHECK_PTR(orig);
 
 #ifndef DEBUG_BUILD
     ALLOC_C1(orig) = FREED_SET(orig);
@@ -338,6 +333,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
      original buffer is wiped. */
 
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+   memset(ret,  0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
 
   if (orig) {
@@ -345,8 +341,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
     memcpy(ret + ALLOC_OFF_HEAD, orig + ALLOC_OFF_HEAD, MIN(size, old_size));
     memset(orig + ALLOC_OFF_HEAD, 0xFF, old_size);
 
-//    ALLOC_C1(orig + ALLOC_OFF_HEAD) = ALLOC_MAGIC_F;
-    ALLOC_C1(orig + ALLOC_OFF_HEAD) = FREED_SET(orig + ALLOC_OFF_HEAD)
+    ALLOC_C1(orig + ALLOC_OFF_HEAD) = FREED_SET(orig + ALLOC_OFF_HEAD);
     free(orig);
 
   }
@@ -403,6 +398,7 @@ static inline u8* DFL_ck_strdup(u8* str) {
 
   ALLOC_CHECK_SIZE(size);
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+  memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
 
   ret += ALLOC_OFF_HEAD;
@@ -426,6 +422,7 @@ static inline void* DFL_ck_memdup(void* mem, u32 size) {
 
   ALLOC_CHECK_SIZE(size);
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+  memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
   
   ret += ALLOC_OFF_HEAD;
@@ -449,11 +446,12 @@ static inline u8* DFL_ck_memdup_str(u8* mem, u32 size) {
 
   ALLOC_CHECK_SIZE(size);
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE + 1);
+  memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
   
   ret += ALLOC_OFF_HEAD;
 
-   store_heap_canary(heap_canary, ret ,size);
+  store_heap_canary(heap_canary, ret ,size);
 
   memcpy(ret, mem, size);
   ret[size] = 0;
