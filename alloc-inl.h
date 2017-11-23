@@ -25,6 +25,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 #include "config.h"
 #include "types.h"
 #include "debug.h"
@@ -188,7 +193,22 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 }
 
 static inline u32 form_heap_canary(){
-   return rand() % 10000;
+   int fd;
+   u32 buf[4] = {0};
+
+   if( (fd = open("/dev/urandom", O_RDONLY )) == -1 ){
+      ABORT("open /dev/urandom is ERROR");
+      return 0;
+   }
+   
+   if(!read(fd, buf, 3)){
+      ABORT("read /dev/urandom is ERROR");
+      return 0;
+   }
+   
+   close(fd);
+   
+   return buf[0] << 8;
 }
 
 static inline u32 check_heap_canary(void* ptr){
