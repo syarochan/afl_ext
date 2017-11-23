@@ -117,7 +117,7 @@ struct free_list{
 };
 
 struct list_canary{
-	u32 index;                      // heap_canary index
+	u32 index;                      // heap_canary index 0 ~ 2046
 	u32 next;                       // next list
 	u32 flag;                       // init:0, not yet:1
 	u32 * list[256];                // heap_canary_ptr
@@ -132,16 +132,16 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
    u32 header = 0;
 
 	if(!list_s.flag){
-		if(!(list_s.list[0] = (u32*)malloc(1024)))
-         ABORT("BAD ALLOC MEMORY"); // index 0~254
-		memset(list_s.list[0], 0x0, 1024);
+		if(!(list_s.list[0] = (u32*)malloc(2047 * 4)))
+         ABORT("BAD ALLOC MEMORY"); 
+		memset(list_s.list[0], 0x0, 2047 * 4);
       list_s.flag = 1;
 	}
-	else if(list_s.index == 256){
+	else if(list_s.index == 2047){
 		list_s.index = 0;
-      if(!(list_s.list[++list_s.next] = (u32*)malloc(1024)))
+      if(!(list_s.list[++list_s.next] = (u32*)malloc(2047 * 4)))
          ABORT("BAD ALLOC MEMORY");
-		memset(list_s.list[list_s.next], 0x0, 1024);
+		memset(list_s.list[list_s.next], 0x0, 2047 * 4);
 	}
 	else if(list_s.next == 256 && list_s.free_list == NULL){
 	   ABORT("heap canary list is full !!");
@@ -165,7 +165,7 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
       return 1;
    }
 
-   while(list_s.index < 256){
+   while(list_s.index < 2047){
       victim = list_s.list[list_s.next];
       if((u32*)victim[list_s.index] == (u32*)NULL){
          victim[list_s.index] = heap_canary;
@@ -186,6 +186,7 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 
    return 0;
 }
+
 static inline u32 form_heap_canary(){
    return rand() % 10000;
 }
@@ -197,7 +198,7 @@ static inline u32 check_heap_canary(void* ptr){
    u32 * victim          = list_s.list[victim_list_index];
 
       if((u32*)victim[victim_index] != (u32*)heap_canary){
-         ABORT("overflow");
+         ABORT("Heap Overflow detected !!");
          return 1;
       }
 
