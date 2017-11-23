@@ -55,19 +55,33 @@
   } while (0)
 
 /* Magic tokens used to mark used / freed chunks. */
-
-#define ALLOC_MAGIC_C1  0xFF00FF00 /* Used head (dword)  */
-#define ALLOC_MAGIC_F   0xFE00FE00 /* Freed head (dword) */
-
 /* Positions of guard tokens in relation to the user-visible pointer. */
 
 #define ALLOC_C1(_ptr)  (((u32*)(_ptr))[-2])
 #define ALLOC_S(_ptr)   (((u32*)(_ptr))[-1])
-#define ALLOC_C2(_ptr)  (((u32*)(_ptr))[ALLOC_S(_ptr) / 4])
+#define canary_num(_num) ({ \
+      u32 _tmp = (u32)_num; \
+    if ((u32)_tmp % 4 != 0) _tmp += 4; \
+      _tmp;\
+      })
+
+#define ALLOC_C2(_ptr)  (((u32*)(_ptr))[canary_num(ALLOC_S(_ptr)) / 4]) //bug
 
 #define ALLOC_OFF_HEAD  8
 #define ALLOC_OFF_TOTAL (ALLOC_OFF_HEAD + 1)
-#define HEAP_CANARY_SIZE 4 // heap_canary size
+#define HEAP_CANARY_SIZE 4                         // heap_canary size
+
+// read header
+#define HEAD_PTR(_ptr)  (ALLOC_C1(_ptr)  & 0xffffffff) >> 31 // used or freed
+#define IDX_PTR(_ptr) (ALLOC_C1(_ptr) & (0x7ff << 20)) >> 20 // index
+#define LIST_PTR(_ptr) (ALLOC_C1(_ptr) & (0xff << 12)) >> 12 // list_index
+
+// write header
+#define CLEAR_SET(_ptr) (ALLOC_C1(_ptr) & ~(0xffffffff))
+#define USED_SET(_ptr) (ALLOC_C1(_ptr)  | (1 << 31))
+#define FREED_SET(_ptr) (ALLOC_C1(_ptr)  & ~(1 << 31))
+#define IDX_SET(_ptr, index) (ALLOC_C1(_ptr) & ~(0x7ff << 20)) | (index << 20)
+#define LIST_SET(_ptr, list) (ALLOC_C1(_ptr) & ~(0xff << 12)) | (list << 12)
 
 /* Allocator increments for ck_realloc_block(). */
 
@@ -77,12 +91,12 @@
 
 #define CHECK_PTR(_p) do { \
     if (_p) { \
-      if (ALLOC_C1(_p) ^ ALLOC_MAGIC_C1) {\
-        if (ALLOC_C1(_p) == ALLOC_MAGIC_F) \
+      if (HEAD_PTR(_p) ^ 1) {\
+        if (HEAD_PTR(_p) == 0) \
           ABORT("Use after free."); \
         else ABORT("Corrupted head alloc canary."); \
       } \
-       if(!check_heap_canary(_p))                    \
+       if(check_heap_canary(_p))                    \
          ABORT("Corrupted tail alloc canary."); \
     } \
   } while (0)
@@ -93,66 +107,131 @@
     _tmp; \
   })
 
-
 /* Allocate a buffer, explicitly not zeroing it. Returns NULL for zero-sized
    requests. */
 
+struct free_list{
+   u16 index;
+   u8 list_idx;
+   struct free_list * fd;
+};
+
 struct list_canary{
-	u32 index;        // heap_canary index
-	u32 next;        // next list
-	u32 flag;        // init:0, not yet:1
-	u32 * list[256];// heap_canary_ptr
+	u32 index;                      // heap_canary index
+	u32 next;                       // next list
+	u32 flag;                       // init:0, not yet:1
+	u32 * list[256];                // heap_canary_ptr
+   struct free_list * free_list;   // free heap canary list
 };
 
-struct list_canary list_s = {
-	0,        // heap_canary index
-	0,        // next list
-	0,        // init:0, not yet:1
-	0        // heap_canary_ptr
-};
+struct list_canary list_s = {0, 0, 0, {0}, 0};
 
-static inline u32 store_heap_canary(u32 heap_canary){
+static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 	u32 * victim = 0;
-   u32 more = 0;
+   struct free_list * f_list = list_s.free_list;
+   u32 header = 0;
 
 	if(!list_s.flag){
-		list_s.list[0] = (u32*)malloc(1024); // index 0~254
+		if(!(list_s.list[0] = (u32*)malloc(1024)))
+         ABORT("BAD ALLOC MEMORY"); // index 0~254
 		memset(list_s.list[0], 0x0, 1024);
       list_s.flag = 1;
 	}
-	else if(list_s.index == 255){
+	else if(list_s.index == 256){
 		list_s.index = 0;
-      if(!more){
-         more++;
-         goto list_loop;
-      }
-	}
-	else if(list_s.next == 255){
-		printf("list is full. sorry");
-		return 0;
-	}
-list_loop:
-	victim = list_s.list[list_s.next];
-	while(list_s.index < 255){
-		if(victim[list_s.index] == NULL){
-			victim[list_s.index] = heap_canary;
-			return 1;
-		}
-      list_s.index++;
-	}
-   if(more){
-      list_s.index = 0;
-		list_s.list[++list_s.next] = (u32*)malloc(1024); // index 0~254
+      if(!(list_s.list[++list_s.next] = (u32*)malloc(1024)))
+         ABORT("BAD ALLOC MEMORY");
 		memset(list_s.list[list_s.next], 0x0, 1024);
-      more = 0;
-      goto list_loop;
+	}
+	else if(list_s.next == 256 && list_s.free_list == NULL){
+	   ABORT("heap canary list is full !!");
+   }
+   // pick up free heap canary list
+   if(list_s.free_list > 0){
+      // set next free canary list and set heap canary
+      list_s.free_list = f_list->fd;
+      victim = list_s.list[f_list->list_idx];
+      victim[f_list->index] = heap_canary;
+      // set header
+      ALLOC_C1(ptr) = CLEAR_SET(ptr);
+      header = IDX_SET(ptr, f_list->index);
+      header += LIST_SET(ptr, f_list->list_idx);
+      header += USED_SET(ptr);
+      ALLOC_C1(ptr) = header;         // header
+      ALLOC_S(ptr)  = size;           // user_size
+      ALLOC_C2(ptr) = heap_canary;    // heap_canary
+      free(f_list);
+
+      return 1;
    }
 
-	return 0;
-}
+   while(list_s.index < 256){
+      victim = list_s.list[list_s.next];
+      if((u32*)victim[list_s.index] == (u32*)NULL){
+         victim[list_s.index] = heap_canary;
+         // set header
+         ALLOC_C1(ptr) = CLEAR_SET(ptr);
+         header = IDX_SET(ptr, list_s.index);
+         header += LIST_SET(ptr, list_s.next);
+         header += USED_SET(ptr);
+         ALLOC_C1(ptr) = header;
+         ALLOC_S(ptr)  = size;           // user_size
+         ALLOC_C2(ptr) = heap_canary;    // heap_canary
+         list_s.index++;
 
+         return 1;
+      }
+      list_s.index++;
+   }
+
+   return 0;
+}
 static inline u32 form_heap_canary(){
    return rand() % 10000;
+}
+
+static inline u32 check_heap_canary(void* ptr){
+   u32 heap_canary       = ALLOC_C2(ptr);
+   u32 victim_index      = IDX_PTR(ptr);
+   u32 victim_list_index = LIST_PTR(ptr);
+   u32 * victim          = list_s.list[victim_list_index];
+
+      if((u32*)victim[victim_index] != (u32*)heap_canary){
+         ABORT("overflow");
+         return 1;
+      }
+
+   return 0;
+}
+
+static inline u32 free_heap_canary(void* ptr){
+   u32 victim_index      = IDX_PTR(ptr);
+   u32 victim_list_index = LIST_PTR(ptr);
+   u32 * victim          = list_s.list[victim_list_index];
+   struct free_list * f_victim = list_s.free_list;
+   struct free_list * f_list = (struct free_list *)malloc(sizeof(struct free_list));
+   if(!f_list)
+      ABORT("BAD ALLOC MEMORY");
+   
+   memset(f_list, 0, sizeof(struct free_list));
+   victim[victim_index] = (u32)NULL; // heap canary init
+
+   // cache free list memory rule is queue
+   while(f_victim){
+      if(!f_victim->fd){
+         f_victim->fd = f_list;
+         break;
+      }
+      f_victim = f_victim->fd;
+   }
+   if(!list_s.free_list)
+      list_s.free_list = f_list;
+   f_list->index    = victim_index;
+   f_list->list_idx = victim_list_index;
+   f_list->fd       = NULL;
+
+   return 0;
+
 }
 
 static inline void* DFL_ck_alloc_nozero(u32 size){
@@ -163,14 +242,14 @@ static inline void* DFL_ck_alloc_nozero(u32 size){
 
 	ALLOC_CHECK_SIZE(size);
 	ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
-	ALLOC_CHECK_RESULT(ret, size);
+   if(!ret)
+      ABORT("BAD ALLOC MEMORY");
+   memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+   ALLOC_CHECK_RESULT(ret, size);
 
 	ret += ALLOC_OFF_HEAD; // offset
-   
-   ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
-	ALLOC_S(ret)  = size;           // user_size
-	ALLOC_C2(ret) = heap_canary;    // heap_canary
-	store_heap_canary(heap_canary);
+   if(!store_heap_canary(heap_canary, ret ,size))
+      ABORT("store_heap_canary function is ERROR !?");
 
 	return ret;
 
@@ -189,30 +268,8 @@ static inline void* DFL_ck_alloc(u32 size) {
 
 }
 
-
 /* Free memory, checking for double free and corrupted heap. When DEBUG_BUILD
    is set, the old memory will be also clobbered with 0xFF. */
-
-static inline u32 check_heap_canary(void* heap_ptr){
-	u32 *heap_canary      = ALLOC_C2(heap_ptr);
-	u32 victim_index      = 0;
-	u32 victim_list_index = 0;
-	u32 * victim          = list_s.list[0];
-
-	while(victim_list_index < list_s.next + 1){
-		while(victim_index < 255){
-			if(victim[victim_index++] == heap_canary){
-				printf("not overflow\n");
-            victim[victim_index - 1 ] = NULL; //heap_ptr list canary is null
-				return 1;
-			}
-		}
-      if( victim = list_s.list[++victim_list_index] == NULL)
-         break;
-	}
-	printf("overflow\n");
-	return 0;
-}
 
 static inline void DFL_ck_free(void* mem) {
 
@@ -225,13 +282,11 @@ static inline void DFL_ck_free(void* mem) {
   memset(mem, 0xFF, ALLOC_S(mem));
 
 #endif /* DEBUG_BUILD */
-
-  ALLOC_C1(mem) = ALLOC_MAGIC_F;
-
+  ALLOC_C1(mem) = FREED_SET(mem);
+  free_heap_canary(mem);
   free(mem - ALLOC_OFF_HEAD);
 
 }
-
 
 /* Re-allocate a buffer, checking for issues and zeroing any newly-added tail.
    With DEBUG_BUILD, the buffer is always reallocated to a new addresses and the
@@ -255,7 +310,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
     CHECK_PTR(orig);
 
 #ifndef DEBUG_BUILD
-    ALLOC_C1(orig) = ALLOC_MAGIC_F;
+    ALLOC_C1(orig) = FREED_SET(orig);
 #endif /* !DEBUG_BUILD */
 
     old_size  = ALLOC_S(orig);
@@ -270,6 +325,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
 #ifndef DEBUG_BUILD
 
   ret = realloc(orig, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+   memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE );
   ALLOC_CHECK_RESULT(ret, size);
 
 #else
@@ -278,6 +334,9 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
      original buffer is wiped. */
 
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+  if(!ret)
+     ABORT("BAD ALLOC MEMORY");
+   memset(ret,  0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
 
   if (orig) {
@@ -285,8 +344,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
     memcpy(ret + ALLOC_OFF_HEAD, orig + ALLOC_OFF_HEAD, MIN(size, old_size));
     memset(orig + ALLOC_OFF_HEAD, 0xFF, old_size);
 
-    ALLOC_C1(orig + ALLOC_OFF_HEAD) = ALLOC_MAGIC_F;
-
+    ALLOC_C1(orig + ALLOC_OFF_HEAD) = FREED_SET(orig + ALLOC_OFF_HEAD);
     free(orig);
 
   }
@@ -295,10 +353,8 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
 
   ret += ALLOC_OFF_HEAD;
 
-   ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
-	ALLOC_S(ret)  = size;           // user_size
-	ALLOC_C2(ret) = heap_canary;    // heap_canary
-	store_heap_canary(heap_canary);
+   if(!store_heap_canary(heap_canary, ret ,size))
+      ABORT("store_heap_canary function is ERROR !?");
 
   if (size > old_size)
     memset(ret + old_size, 0, size - old_size);
@@ -346,14 +402,15 @@ static inline u8* DFL_ck_strdup(u8* str) {
 
   ALLOC_CHECK_SIZE(size);
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+  if(!ret)
+     ABORT("BAD ALLOC MEMORY");
+  memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
 
   ret += ALLOC_OFF_HEAD;
 
-   ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
-	ALLOC_S(ret)  = size;           // user_size
-	ALLOC_C2(ret) = heap_canary;    // heap_canary
-	store_heap_canary(heap_canary);
+   if(!store_heap_canary(heap_canary, ret ,size))
+      ABORT("store_heap_canary function is ERROR !?");
 
   return memcpy(ret, str, size);
 
@@ -372,14 +429,15 @@ static inline void* DFL_ck_memdup(void* mem, u32 size) {
 
   ALLOC_CHECK_SIZE(size);
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
+  if(!ret)
+     ABORT("BAD ALLOC MEMORY");
+  memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
   
   ret += ALLOC_OFF_HEAD;
 
-   ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
-	ALLOC_S(ret)  = size;           // user_size
-	ALLOC_C2(ret) = heap_canary;    // heap_canary
-	store_heap_canary(heap_canary);
+   if(!store_heap_canary(heap_canary, ret ,size))
+      ABORT("store_heap_canary function is ERROR !?");
 
   return memcpy(ret, mem, size);
 
@@ -398,14 +456,15 @@ static inline u8* DFL_ck_memdup_str(u8* mem, u32 size) {
 
   ALLOC_CHECK_SIZE(size);
   ret = malloc(size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE + 1);
+  if(!ret)
+     ABORT("BAD ALLOC MEMORY");
+  memset(ret, 0x0, size + ALLOC_OFF_HEAD + HEAP_CANARY_SIZE);
   ALLOC_CHECK_RESULT(ret, size);
   
   ret += ALLOC_OFF_HEAD;
 
-   ALLOC_C1(ret) = ALLOC_MAGIC_C1; // real_alloc(check_mem_corrrupt)
-	ALLOC_S(ret)  = size;           // user_size
-	ALLOC_C2(ret) = heap_canary;    // heap_canary
-	store_heap_canary(heap_canary);
+   if(!store_heap_canary(heap_canary, ret ,size))
+      ABORT("store_heap_canary function is ERROR !?");
 
   memcpy(ret, mem, size);
   ret[size] = 0;

@@ -2,6 +2,7 @@
 ・ランダムな状態で検知できるようにする。
 ・heap headを用いて、heap_canaryの場所を一発で検索できるようにする。
 ・heap_canary_listのフラグメント問題(簡易的なキャッシュの実装)
+	キャッシュを使った時のキャッシュ構造体Freeのタイミング
 ・入力行動が行われた瞬間にCheckすることはできないか？(対策が思いついていない)
 
 list_canary構造体をグローバルに作る。
@@ -140,4 +141,22 @@ CHECK_PTRでcheck_heap_canaryを行う。
 
 
 AFLで使われるheadを改造する。
-・最初の1bitは1:use or 0:free, 3bit+2byteはindex, 残りの1byteはlist_index
+・最初の1bitは1:use or 0:free, 7bit+1byteはindex, 1byteはlist_index
+00 00 00 00
+headerから、それぞれの要素を取り出す。
+#define HEAD_PTR(_ptr)  ALLOC_S(_ptr) >> 31        // use or free
+#define IDX_PTR(_ptr) (ALLOC_S(_ptr) << 1) >> 21   // index
+#define LIST_PTR(_ptr) (ALLOC_S(_ptr) << 12) >> 24 // list_index
+
+headerから、それぞれの要素を格納する。
+#define USED_SET(_ptr) 
+	(ALLOC_S(_ptr)  & (1 << 31))
+
+#define FREED_SET(_ptr) (ALLOC_S(_ptr)  & (0 << 31))
+
+#define IDX_SET(_ptr, index) (ALLOC_S(_ptr) & (0x7ff << 20)) \
+	(ALLOC_S(_ptr)  ^ (index << 20))
+
+#define LIST_SET(_ptr, list) (ALLOC_S(_ptr) & 0xff << 12) \
+	(ALLOC_S(_ptr)  ^ (list << 12))
+
