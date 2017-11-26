@@ -77,9 +77,10 @@
 #define HEAP_CANARY_SIZE 4                         // heap_canary size
 
 // read header
-#define HEAD_PTR(_ptr)  (ALLOC_C1(_ptr)  & 0xffffffff) >> 31 // used or freed
-#define IDX_PTR(_ptr) (ALLOC_C1(_ptr) & (0x7ff << 20)) >> 20 // index
-#define LIST_PTR(_ptr) (ALLOC_C1(_ptr) & (0xff << 12)) >> 12 // list_index
+#define HEAD_PTR(_ptr)  (ALLOC_C1(_ptr)  & 0xffffffff) >> 31   // used or freed
+#define IDX_PTR(_ptr) (ALLOC_C1(_ptr) & (0x7ff << 20)) >> 20   // index
+#define LIST_PTR(_ptr) (ALLOC_C1(_ptr) & (0xff << 12)) >> 12   // fisrt_list_index
+#define LIST_IDX_PTR(_ptr) (ALLOC_C1(_ptr) & (0xff << 4)) >> 4 // second_list_index
 
 // write header
 #define CLEAR_SET(_ptr) (ALLOC_C1(_ptr) & ~(0xffffffff))
@@ -87,6 +88,7 @@
 #define FREED_SET(_ptr) (ALLOC_C1(_ptr)  & ~(1 << 31))
 #define IDX_SET(_ptr, index) (ALLOC_C1(_ptr) & ~(0x7ff << 20)) | (index << 20)
 #define LIST_SET(_ptr, list) (ALLOC_C1(_ptr) & ~(0xff << 12)) | (list << 12)
+#define LIST_IDX_SET(_ptr, list_idx) (ALLOC_C1(_ptr) & ~(0xff << 4)) | (list_idx << 4)
 
 /* Allocator increments for ck_realloc_block(). */
 
@@ -117,36 +119,50 @@
 
 struct free_list{
    u16 index;
-   u8 list_idx;
+   u8 list_idx_1;
+   u8 list_idx_2;
    struct free_list * fd;
 };
 
 struct list_canary{
 	u32 index;                      // heap_canary index 0 ~ 2046
+   u32 list_idx;                    // second list index
 	u32 next;                       // next list
 	u32 flag;                       // init:0, not yet:1
 	u32 * list[256];                // heap_canary_ptr
    struct free_list * free_list;   // free heap canary list
 };
 
-struct list_canary list_s = {0, 0, 0, {0}, 0};
+struct list_canary list_s = {0, 0, 0, 0, {0}, 0};
 
 static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 	u32 * victim = 0;
+   u32 * victim_list = 0;
    struct free_list * f_list = list_s.free_list;
    u32 header = 0;
 
 	if(!list_s.flag){
-		if(!(list_s.list[0] = (u32*)malloc(2047 * 4)))
-         ABORT("BAD ALLOC MEMORY"); 
-		memset(list_s.list[0], 0x0, 2047 * 4);
+		if(!(list_s.list[0] = (u32*)malloc(256 * 4)))
+         ABORT("BAD ALLOC MEMORY");
+		memset(list_s.list[0], 0x0, 256 * 4);
+      victim_list = (u32*)list_s.list[0];
+      if(!(victim_list[0] = (u32*)malloc(2047 * 4)))
+         ABORT("BAD ALLOC MEMORY");
+      memset((u32*)victim_list[0], 0x0, 2047 * 4);
       list_s.flag = 1;
 	}
 	else if(list_s.index == 2047){
 		list_s.index = 0;
-      if(!(list_s.list[++list_s.next] = (u32*)malloc(2047 * 4)))
+      if(list_s.list_idx == 256){
+         list_s.list_idx = 0; 
+         if(!(list_s.list[++list_s.next] = (u32*)malloc(256 * 4)))
+            ABORT("BAD ALLOC MEMORY");
+		   memset(list_s.list[list_s.next], 0x0, 256 * 4);
+      }
+      victim_list = list_s.list[list_s.next];
+      if(!(victim_list[++list_s.list_idx] = (u32*)malloc(2047 * 4)))
          ABORT("BAD ALLOC MEMORY");
-		memset(list_s.list[list_s.next], 0x0, 2047 * 4);
+		memset((u32*)victim_list[list_s.list_idx], 0x0, 2047 * 4);
 	}
 	else if(list_s.next == 256 && list_s.free_list == NULL){
 	   ABORT("heap canary list is full !!");
@@ -155,12 +171,14 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
    if(list_s.free_list > 0){
       // set next free canary list and set heap canary
       list_s.free_list = f_list->fd;
-      victim = list_s.list[f_list->list_idx];
+      victim_list = list_s.list[f_list->list_idx_1]; 
+      victim = (u32*)victim_list[f_list->list_idx_2];
       victim[f_list->index] = heap_canary;
       // set header
       ALLOC_C1(ptr) = CLEAR_SET(ptr);
-      header = IDX_SET(ptr, f_list->index);
-      header += LIST_SET(ptr, f_list->list_idx);
+      header =  LIST_IDX_SET(ptr, f_list->list_idx_2);
+      header += IDX_SET(ptr, f_list->index);
+      header += LIST_SET(ptr, f_list->list_idx_2);
       header += USED_SET(ptr);
       ALLOC_C1(ptr) = header;         // header
       ALLOC_S(ptr)  = size;           // user_size
@@ -171,12 +189,14 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
    }
 
    while(list_s.index < 2047){
-      victim = list_s.list[list_s.next];
+      victim_list = list_s.list[list_s.next];
+      victim      = (u32*)victim_list[list_s.list_idx];
       if((u32*)victim[list_s.index] == (u32*)NULL){
          victim[list_s.index] = heap_canary;
          // set header
          ALLOC_C1(ptr) = CLEAR_SET(ptr);
-         header = IDX_SET(ptr, list_s.index);
+         header = LIST_IDX_SET(ptr, list_s.list_idx);
+         header += IDX_SET(ptr, list_s.index);
          header += LIST_SET(ptr, list_s.next);
          header += USED_SET(ptr);
          ALLOC_C1(ptr) = header;
@@ -186,7 +206,7 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 
          return 1;
       }
-      list_s.index++;
+      //list_s.index++;
    }
 
    return 0;
@@ -212,12 +232,14 @@ static inline u32 form_heap_canary(){
 }
 
 static inline u32 check_heap_canary(void* ptr){
-   u32 heap_canary       = ALLOC_C2(ptr);
-   u32 victim_index      = IDX_PTR(ptr);
-   u32 victim_list_index = LIST_PTR(ptr);
-   u32 * victim          = list_s.list[victim_list_index];
+   u32 heap_canary           = ALLOC_C2(ptr);
+   u32 victim_index          = IDX_PTR(ptr);
+   u32 victim_1st_list_index = LIST_PTR(ptr);
+   u32 victim_2nd_list_index = LIST_IDX_PTR(ptr);
+   u32 * victim_list           = list_s.list[victim_1st_list_index];
+   u32 * victim                = (u32*)victim_list[victim_2nd_list_index];
 
-      if((u32*)victim[victim_index] != (u32*)heap_canary){
+      if(victim[victim_index] != heap_canary){
          ABORT("Heap Overflow detected !!");
          return 1;
       }
@@ -226,11 +248,14 @@ static inline u32 check_heap_canary(void* ptr){
 }
 
 static inline u32 free_heap_canary(void* ptr){
-   u32 victim_index      = IDX_PTR(ptr);
-   u32 victim_list_index = LIST_PTR(ptr);
-   u32 * victim          = list_s.list[victim_list_index];
+   u32 victim_index            = IDX_PTR(ptr);
+   u32 victim_1st_list_index   = LIST_PTR(ptr);
+   u32 victim_2nd_list_index   = LIST_IDX_PTR(ptr);
+   u32 * victim_list           = list_s.list[victim_1st_list_index];
+   u32 * victim                = (u32*)victim_list[victim_2nd_list_index];
    struct free_list * f_victim = list_s.free_list;
-   struct free_list * f_list = (struct free_list *)malloc(sizeof(struct free_list));
+   struct free_list * f_list   = (struct free_list *)malloc(sizeof(struct free_list));
+
    if(!f_list)
       ABORT("BAD ALLOC MEMORY");
    
@@ -247,9 +272,10 @@ static inline u32 free_heap_canary(void* ptr){
    }
    if(!list_s.free_list)
       list_s.free_list = f_list;
-   f_list->index    = victim_index;
-   f_list->list_idx = victim_list_index;
-   f_list->fd       = NULL;
+   f_list->index      = victim_index;
+   f_list->list_idx_1 = victim_1st_list_index;
+   f_list->list_idx_2 = victim_2nd_list_index;
+   f_list->fd         = NULL;
 
    return 0;
 
