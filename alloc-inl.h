@@ -206,7 +206,7 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 
          return 1;
       }
-      //list_s.index++;
+      list_s.index++;
    }
 
    return 0;
