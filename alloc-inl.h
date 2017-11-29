@@ -178,7 +178,7 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
       ALLOC_C1(ptr) = CLEAR_SET(ptr);
       header =  LIST_IDX_SET(ptr, f_list->list_idx_2);
       header += IDX_SET(ptr, f_list->index);
-      header += LIST_SET(ptr, f_list->list_idx_2);
+      header += LIST_SET(ptr, f_list->list_idx_1);
       header += USED_SET(ptr);
       ALLOC_C1(ptr) = header;         // header
       ALLOC_S(ptr)  = size;           // user_size
