@@ -150,22 +150,30 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
          ABORT("BAD ALLOC MEMORY");
       memset((u32*)victim_list[0], 0x0, 2047 * 4);
       list_s.flag = 1;
-	}
-	else if(list_s.index == 2047){
-		list_s.index = 0;
-      if(list_s.list_idx == 256){
-         list_s.list_idx = 0; 
-         if(!(list_s.list[++list_s.next] = (u32*)malloc(256 * 4)))
+   }
+   else if(list_s.index == 2047){
+      list_s.index = 0;
+      list_s.list_idx++;
+      if(list_s.list_idx < 256){
+         victim_list = list_s.list[list_s.next];
+         if(!(victim_list[list_s.list_idx] = (u32*)malloc(2047 * 4)))
             ABORT("BAD ALLOC MEMORY");
-		   memset(list_s.list[list_s.next], 0x0, 256 * 4);
+         memset((u32*)victim_list[list_s.list_idx], 0x0, 2047 * 4);
       }
-      victim_list = list_s.list[list_s.next];
-      if(!(victim_list[++list_s.list_idx] = (u32*)malloc(2047 * 4)))
-         ABORT("BAD ALLOC MEMORY");
-		memset((u32*)victim_list[list_s.list_idx], 0x0, 2047 * 4);
-	}
-	else if(list_s.next == 256 && list_s.free_list == NULL){
-	   ABORT("heap canary list is full !!");
+      if(list_s.list_idx == 256 && list_s.next < 255){
+         list_s.list_idx = 0;
+         list_s.next++;
+         if(!(list_s.list[list_s.next] = (u32*)malloc(256 * 4)))
+            ABORT("BAD ALLOC MEMORY");
+         memset(list_s.list[list_s.next], 0x0, 256 * 4);
+         victim_list = (u32*)list_s.list[list_s.next];
+         if(!(victim_list[list_s.list_idx] = (u32*)malloc(2047 * 4)))
+            ABORT("BAD ALLOC MEMORY");
+         memset((u32*)victim_list[list_s.list_idx], 0x0, 2047 * 4);
+      }
+   }
+   else if(list_s.next == 256 && list_s.free_list == NULL){
+      ABORT("heap canary list is full !!");
    }
    // pick up free heap canary list
    if(list_s.free_list > 0){
