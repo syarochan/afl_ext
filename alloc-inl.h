@@ -220,7 +220,7 @@ static inline u32 store_heap_canary(u64 heap_canary, void* ptr ,u32 size){
    return 0;
 }
 
-static inline u32 form_heap_canary(){
+static inline u64 form_heap_canary(){
    int fd;
    u64 buf[8] = {0};
 
