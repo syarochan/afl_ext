@@ -62,19 +62,19 @@
 /* Magic tokens used to mark used / freed chunks. */
 /* Positions of guard tokens in relation to the user-visible pointer. */
 
-#define ALLOC_C1(_ptr)  (((u32*)(_ptr))[-2])
-#define ALLOC_S(_ptr)   (((u32*)(_ptr))[-1])
+#define ALLOC_C1(_ptr)  (((u64*)(_ptr))[-2])
+#define ALLOC_S(_ptr)   (((u64*)(_ptr))[-1])
 #define canary_num(_num) ({ \
-      u32 _tmp = (u32)_num; \
-    if ((u32)_tmp % 4 != 0) _tmp += 4; \
+      u64 _tmp = (u64)_num; \
+    if ((u64)_tmp % 8 != 0) _tmp += 8; \
       _tmp;\
       })
 
-#define ALLOC_C2(_ptr)  (((u32*)(_ptr))[canary_num(ALLOC_S(_ptr)) / 4]) //bug
+#define ALLOC_C2(_ptr)  (((u64*)(_ptr))[canary_num(ALLOC_S(_ptr)) / 8]) 
 
-#define ALLOC_OFF_HEAD  8
+#define ALLOC_OFF_HEAD  16
 #define ALLOC_OFF_TOTAL (ALLOC_OFF_HEAD + 1)
-#define HEAP_CANARY_SIZE 4                         // heap_canary size
+#define HEAP_CANARY_SIZE 8                         // heap_canary size
 
 // read header
 #define HEAD_PTR(_ptr)  (ALLOC_C1(_ptr)  & 0xffffffff) >> 31   // used or freed
@@ -129,26 +129,26 @@ struct list_canary{
    u32 list_idx;                    // second list index
 	u32 next;                       // next list
 	u32 flag;                       // init:0, not yet:1
-	u32 * list[256];                // heap_canary_ptr
+	u64 * list[256];                // heap_canary_ptr
    struct free_list * free_list;   // free heap canary list
 };
 
 struct list_canary list_s = {0, 0, 0, 0, {0}, 0};
 
-static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
-	u32 * victim = 0;
-   u32 * victim_list = 0;
+static inline u32 store_heap_canary(u64 heap_canary, void* ptr ,u32 size){
+	u64 * victim = 0;
+   u64 * victim_list = 0;
    struct free_list * f_list = list_s.free_list;
    u32 header = 0;
 
 	if(!list_s.flag){
-		if(!(list_s.list[0] = (u32*)malloc(256 * 4)))
+		if(!(list_s.list[0] = (u64*)malloc(256 * 8)))
          ABORT("BAD ALLOC MEMORY");
-		memset(list_s.list[0], 0x0, 256 * 4);
-      victim_list = (u32*)list_s.list[0];
-      if(!(victim_list[0] = (u32*)malloc(2047 * 4)))
+		memset(list_s.list[0], 0x0, 256 * 8);
+      victim_list = list_s.list[0];
+      if(!(victim_list[0] = (u64)malloc(2047 * 8)))
          ABORT("BAD ALLOC MEMORY");
-      memset((u32*)victim_list[0], 0x0, 2047 * 4);
+      memset((u64*)victim_list[0], 0x0, 2047 * 8);
       list_s.flag = 1;
    }
    else if(list_s.index == 2047){
@@ -156,20 +156,20 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
       list_s.list_idx++;
       if(list_s.list_idx < 256){
          victim_list = list_s.list[list_s.next];
-         if(!(victim_list[list_s.list_idx] = (u32*)malloc(2047 * 4)))
+         if(!(victim_list[list_s.list_idx] = (u64)malloc(2047 * 8)))
             ABORT("BAD ALLOC MEMORY");
-         memset((u32*)victim_list[list_s.list_idx], 0x0, 2047 * 4);
+         memset((u64*)victim_list[list_s.list_idx], 0x0, 2047 * 8);
       }
       if(list_s.list_idx == 256 && list_s.next < 255){
          list_s.list_idx = 0;
          list_s.next++;
-         if(!(list_s.list[list_s.next] = (u32*)malloc(256 * 4)))
+         if(!(list_s.list[list_s.next] = (u64*)malloc(256 * 8)))
             ABORT("BAD ALLOC MEMORY");
-         memset(list_s.list[list_s.next], 0x0, 256 * 4);
-         victim_list = (u32*)list_s.list[list_s.next];
-         if(!(victim_list[list_s.list_idx] = (u32*)malloc(2047 * 4)))
+         memset(list_s.list[list_s.next], 0x0, 256 * 8);
+         victim_list = (u64*)list_s.list[list_s.next];
+         if(!(victim_list[list_s.list_idx] = (u64)malloc(2047 * 8)))
             ABORT("BAD ALLOC MEMORY");
-         memset((u32*)victim_list[list_s.list_idx], 0x0, 2047 * 4);
+         memset((u64*)victim_list[list_s.list_idx], 0x0, 2047 * 8);
       }
    }
    else if(list_s.next == 256 && list_s.free_list == NULL){
@@ -180,7 +180,7 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
       // set next free canary list and set heap canary
       list_s.free_list = f_list->fd;
       victim_list = list_s.list[f_list->list_idx_1]; 
-      victim = (u32*)victim_list[f_list->list_idx_2];
+      victim = (u64*)victim_list[f_list->list_idx_2];
       victim[f_list->index] = heap_canary;
       // set header
       ALLOC_C1(ptr) = CLEAR_SET(ptr);
@@ -198,8 +198,8 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 
    while(list_s.index < 2047){
       victim_list = list_s.list[list_s.next];
-      victim      = (u32*)victim_list[list_s.list_idx];
-      if((u32*)victim[list_s.index] == (u32*)NULL){
+      victim      = (u64*)victim_list[list_s.list_idx];
+      if((u64*)victim[list_s.index] == (u64*)NULL){
          victim[list_s.index] = heap_canary;
          // set header
          ALLOC_C1(ptr) = CLEAR_SET(ptr);
@@ -222,14 +222,14 @@ static inline u32 store_heap_canary(u32 heap_canary, void* ptr ,u32 size){
 
 static inline u32 form_heap_canary(){
    int fd;
-   u32 buf[4] = {0};
+   u64 buf[8] = {0};
 
    if( (fd = open("/dev/urandom", O_RDONLY )) == -1 ){
       ABORT("open /dev/urandom is ERROR");
       return 0;
    }
    
-   if(!read(fd, buf, 3)){
+   if(!read(fd, buf, 7)){
       ABORT("read /dev/urandom is ERROR");
       return 0;
    }
@@ -240,12 +240,12 @@ static inline u32 form_heap_canary(){
 }
 
 static inline u32 check_heap_canary(void* ptr){
-   u32 heap_canary           = ALLOC_C2(ptr);
+   u64 heap_canary           = ALLOC_C2(ptr);
    u32 victim_index          = IDX_PTR(ptr);
    u32 victim_1st_list_index = LIST_PTR(ptr);
    u32 victim_2nd_list_index = LIST_IDX_PTR(ptr);
-   u32 * victim_list           = list_s.list[victim_1st_list_index];
-   u32 * victim                = (u32*)victim_list[victim_2nd_list_index];
+   u64 * victim_list           = list_s.list[victim_1st_list_index];
+   u64 * victim                = (u64*)victim_list[victim_2nd_list_index];
 
       if(victim[victim_index] != heap_canary){
          ABORT("Heap Overflow detected !!");
@@ -259,8 +259,8 @@ static inline u32 free_heap_canary(void* ptr){
    u32 victim_index            = IDX_PTR(ptr);
    u32 victim_1st_list_index   = LIST_PTR(ptr);
    u32 victim_2nd_list_index   = LIST_IDX_PTR(ptr);
-   u32 * victim_list           = list_s.list[victim_1st_list_index];
-   u32 * victim                = (u32*)victim_list[victim_2nd_list_index];
+   u64 * victim_list           = list_s.list[victim_1st_list_index];
+   u64 * victim                = (u64*)victim_list[victim_2nd_list_index];
    struct free_list * f_victim = list_s.free_list;
    struct free_list * f_list   = (struct free_list *)malloc(sizeof(struct free_list));
 
@@ -268,7 +268,7 @@ static inline u32 free_heap_canary(void* ptr){
       ABORT("BAD ALLOC MEMORY");
    
    memset(f_list, 0, sizeof(struct free_list));
-   victim[victim_index] = (u32)NULL; // heap canary init
+   victim[victim_index] = (u64)NULL; // heap canary init
 
    // cache free list memory rule is queue
    while(f_victim){
@@ -291,7 +291,7 @@ static inline u32 free_heap_canary(void* ptr){
 
 static inline void* DFL_ck_alloc_nozero(u32 size){
 	void* ret;
-   u32 heap_canary = form_heap_canary();
+   u64 heap_canary = form_heap_canary();
 
 	if (!size) return NULL;
 
@@ -351,7 +351,7 @@ static inline void* DFL_ck_realloc(void* orig, u32 size) {
 
   void* ret;
   u32   old_size = 0;
-  u32 heap_canary = form_heap_canary();
+  u64 heap_canary = form_heap_canary();
 
   if (!size) {
 
@@ -449,7 +449,7 @@ static inline u8* DFL_ck_strdup(u8* str) {
 
   void* ret;
   u32   size;
-  u32 heap_canary = form_heap_canary();
+  u64 heap_canary = form_heap_canary();
   
   if (!str) return NULL;
 
@@ -478,7 +478,7 @@ static inline u8* DFL_ck_strdup(u8* str) {
 static inline void* DFL_ck_memdup(void* mem, u32 size) {
 
   void* ret;
-  u32 heap_canary = form_heap_canary();
+  u64 heap_canary = form_heap_canary();
 
   if (!mem || !size) return NULL;
 
@@ -505,7 +505,7 @@ static inline void* DFL_ck_memdup(void* mem, u32 size) {
 static inline u8* DFL_ck_memdup_str(u8* mem, u32 size) {
 
   u8* ret;
-  u32 heap_canary = form_heap_canary();
+  u64 heap_canary = form_heap_canary();
   
   if (!mem || !size) return NULL;
 
