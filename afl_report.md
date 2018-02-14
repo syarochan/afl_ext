@@ -16,6 +16,10 @@
 - diskの書き込みを頻繁に行うため、iostat -d 3 -x -k [...optional disk ID...]で確認できる。
 - 13)の部分結構重要(64bit向けの考え方、UIの変更するツール、ネットワーク検証ツール、人が読めるようなcodeにするツール)
 
+# notes_for_asan.txt
+- 特にASAN(address sanitizer)を64bit binaryで使うべきではない。faultsの原因にもなるし、めちゃくちゃ重い。
+- ASANはQEMU modeで使ったらshadow VMで物理メモリを確保しに行ってクラッシュするので使うな。 
+
 # perf_tips.txt
 - 1KB以下のtest caseを作成しなければならない。1KBまでなら71%の確率でバグを見つけることができる。
 - 1KBを超えるとバグを見つける確率は11%までになり、10KBを超えると1%までになる。
