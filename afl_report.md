@@ -1,6 +1,6 @@
 ### AFLについて
 ## README.txt
-- QEMUのサポートはしているが、2-5倍までパフォーマンスが落ちる。
+- QEMUのサポート(userspaceでのBlackBox fuzzing)はしているが、2-5倍までパフォーマンスが落ちる。
 - dynamic linkよりもstatic linkでやらなければいけない。
 - libdislocatorライブラリを使うとheapのメモリアクセス違反の簡易的な検知ができる。
 - AFL_PRELOADを使ってロードさせる(詳細はREADME.dislocator)
@@ -13,6 +13,8 @@
 - -Cオプションでcrash exploration modeでどのような探索をしてクラッシュを起こしたのかを表示してくれる。
 - fuzzing対象に合わせてcrash内容をabortした時にtraceしてくれる。
 - FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION, __AFL_COMPILERのどちらかでsanity checkを簡易的に行ってくれる
+- diskの書き込みを頻繁に行うため、iostat -d 3 -x -k [...optional disk ID...]で確認できる。
+- 13)の部分結構重要(64bit向けの考え方、UIの変更するツール、ネットワーク検証ツール、人が読めるようなcodeにするツール)
 
 # perf_tips.txt
 - 1KB以下のtest caseを作成しなければならない。1KBまでなら71%の確率でバグを見つけることができる。
