@@ -10,7 +10,9 @@
 - 辞書型を作成するときは2-16bytesの間がsweet spots
 - SQliteの簡単なバグの見つけ方（http://lcamtuf.blogspot.com/2015/04/finding-bugs-in-sqlite-easy-way.html）
 - tokencapをつかって余計なsyntax tokensを辞書型を使って通すことができる。ただし、linuxだけ(詳細はREADME.tokencap)
-- -Cオプションでcrash exploration modeでどのような探索をしてクラッシュを起こしたのかを
+- -Cオプションでcrash exploration modeでどのような探索をしてクラッシュを起こしたのかを表示してくれる。
+- fuzzing対象に合わせてcrash内容をabortした時にtraceしてくれる。
+- FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION, __AFL_COMPILERのどちらかでsanity checkを簡易的に行ってくれる
 
 # perf_tips.txt
 - 1KB以下のtest caseを作成しなければならない。1KBまでなら71%の確率でバグを見つけることができる。
@@ -69,6 +71,9 @@ the block size for block operations is capped at around 1 kB.
 - crash exploration modeは-Cオプションで使うことができるcrashesのtraceオプションである。
 - 自動で実行されるようになっており、crash pointまで実行される。
 - execveを一回一回変異inputsのために実行させるのライブラリの初期化のコストがかかるためよろしくないからfork-serverを作った。(https://lcamtuf.blogspot.jp/2014/10/fuzzing-binaries-without-execve.html)
+- deferred modeはuser inputsが大きい物はスキップするようなmode。10倍くらいまで速くなる。
+- persistent modeはocerheadになりそうなforkに制限をかけるもの。
+- QEMUを使うとき、fork-serverはQEMUとparent processの間にAFL fork serverがある。
 
 ## historicak_notes
 # AFLに関する考え方、戦略に対するコスト
