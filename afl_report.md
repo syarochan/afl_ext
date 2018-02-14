@@ -1,5 +1,5 @@
-### AFLについて
-## README.txt
+## AFLについて
+# README.txt
 - QEMUのサポート(userspaceでのBlackBox fuzzing)はしているが、2-5倍までパフォーマンスが落ちる。
 - dynamic linkよりもstatic linkでやらなければいけない。
 - libdislocatorライブラリを使うとheapのメモリアクセス違反の簡易的な検知ができる。
@@ -38,7 +38,7 @@
 - -fオプションは入力で変異した内容をファイルに書き込む。
 - -nオプションはblind fuzzer mode
 
-## technical_details.txt
+# technical_details.txt
 - tupleがどのようにキューに生成されるかはいかのようになる。
   1) つぎのtupleが存在しない場合動くようにセットする
   2) 勝ったtuple（遺伝的アルゴリズムで）がキューに入る
@@ -56,7 +56,9 @@
 3) アルファベットの文字と0x00を組み合わせながら配置を変えつつ実行する
 4) 0x00以外のもので実行する
 
-- fuzzingの戦略として、ランダムなのもので実行する前にsequential bit flipsとsimple arithmeticsを行う。様々な種類がある（詳しくはhttps://lcamtuf.blogspot.jp/2014/08/binary-fuzzing-strategies-what-works.html）以下のような順番でやっていったあとに最後にユーザーの初期値を使うユーザーの初期値で新たなpathsが見つかる可能性はだいたい20％くらい(ここまで全てのステップを実行したあとでの確率)
+- fuzzingの戦略として、ランダムなのもので実行する前にsequential bit flipsとsimple arithmeticsを行う。様々な種類がある(https://lcamtuf.blogspot.jp/2014/08/binary-fuzzing-strategies-what-works.html)
+
+- 以下のような順番でやっていったあとに最後にユーザーの初期値を使うユーザーの初期値で新たなpathsが見つかる可能性はだいたい20％くらい(ここまで全てのステップを実行したあとでの確率)
 Walking bit flips: 
 Walking byte flips: 
 Simple arithmetics: 
@@ -81,8 +83,8 @@ the block size for block operations is capped at around 1 kB.
 - persistent modeはocerheadになりそうなforkに制限をかけるもの。
 - QEMUを使うとき、fork-serverはQEMUとparent processの間にAFL fork serverがある。
 
-## historicak_notes
-# AFLに関する考え方、戦略に対するコスト
+# historicak_notes.txt
+## AFLに関する考え方、戦略に対するコスト
 - AFLは以下の考えで実装が行われている
 - スピードが大切である。その上でトリミングの構文分析の正確性、不必要な関数の部分、input fileに対するトリミングの排除を目指す。
 - 確実性が大切である。戦略に沿って行っていく。（symbolic実行はゴミという考え）
