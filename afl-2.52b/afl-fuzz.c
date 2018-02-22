@@ -2468,17 +2468,17 @@ static void write_to_testcase(void* mem, u32 len) {
 
   s32 fd = out_fd;
 
-  if (out_file) {
+  if (out_file) {// out_fileがある場合
 
-    unlink(out_file); /* Ignore errors. */
+    unlink(out_file); /* Ignore errors. */ //一度linkはずす(すでに開かれているので削除はされない)
 
-    fd = open(out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    fd = open(out_file, O_WRONLY | O_CREAT | O_EXCL, 0600);//新しいファイルが開かれる
 
     if (fd < 0) PFATAL("Unable to create '%s'", out_file);
 
   } else lseek(fd, 0, SEEK_SET);
 
-  ck_write(fd, mem, len, out_file);
+  ck_write(fd, mem, len, out_file);//out_fileに書き込む
 
   if (!out_file) {
 
@@ -2547,30 +2547,30 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
   if (!from_queue || resuming_fuzz)
     use_tmout = MAX(exec_tmout + CAL_TMOUT_ADD,
-                    exec_tmout * CAL_TMOUT_PERC / 100);
+                    exec_tmout * CAL_TMOUT_PERC / 100);// form_queueまたは、resuming_fuzzがあれば
 
   q->cal_failed++;
 
-  stage_name = "calibration";
-  stage_max  = fast_cal ? 3 : CAL_CYCLES;
+  stage_name = "calibration";// stageの名前をclibrationにする
+  stage_max  = fast_cal ? 3 : CAL_CYCLES;// fast_calであれば3,そうでなければCAL_CYCLES
 
   /* Make sure the forkserver is up before we do anything, and let's not
      count its spin-up time toward binary calibration. */
 
   if (dumb_mode != 1 && !no_forkserver && !forksrv_pid)
-    init_forkserver(argv);
+    init_forkserver(argv);// dumb_mode != 1ではないときに、fork serverが作られていなければ作成する
 
-  if (q->exec_cksum) memcpy(first_trace, trace_bits, MAP_SIZE);
+  if (q->exec_cksum) memcpy(first_trace, trace_bits, MAP_SIZE);// exec_cksumがあれば
 
-  start_us = get_cur_time_us();
+  start_us = get_cur_time_us();//現在の時間を取得
 
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
     u32 cksum;
 
-    if (!first_run && !(stage_cur % stats_update_freq)) show_stats();
+    if (!first_run && !(stage_cur % stats_update_freq)) show_stats();//status screenの更新(読んでない)
 
-    write_to_testcase(use_mem, q->len);
+    write_to_testcase(use_mem, q->len);// out_fileにuse_memの内容を書き込む
 
     fault = run_target(argv, use_tmout);
 
@@ -2680,10 +2680,10 @@ static void check_map_coverage(void) {
 
   u32 i;
 
-  if (count_bytes(trace_bits) < 100) return;
+  if (count_bytes(trace_bits) < 100) return;//trace_bitsの数が100個以下であればreturn
 
   for (i = (1 << (MAP_SIZE_POW2 - 1)); i < MAP_SIZE; i++)
-    if (trace_bits[i]) return;
+    if (trace_bits[i]) return;// 一番後ろから調べていき、trace_bitsが立っているものがあればreturn
 
   WARNF("Recompile binary with newer version of afl to improve coverage!");
 
@@ -2732,24 +2732,24 @@ static void perform_dry_run(char** argv) {
 
       case FAULT_NONE:
 
-        if (q == queue) check_map_coverage();
+        if (q == queue) check_map_coverage();// qが一番先頭であればmap範囲を調べる
 
-        if (crash_mode) FATAL("Test case '%s' does *NOT* crash", fn);
+        if (crash_mode) FATAL("Test case '%s' does *NOT* crash", fn);// crashしていないデータがあり、crash_modeであればエラー
 
         break;
 
       case FAULT_TMOUT:
 
-        if (timeout_given) {
+        if (timeout_given) {// timeout_givenがある場合
 
           /* The -t nn+ syntax in the command line sets timeout_given to '2' and
              instructs afl-fuzz to tolerate but skip queue entries that time
              out. */
 
-          if (timeout_given > 1) {
+          if (timeout_given > 1) {// timeout_given=2(-t nn+)である場合
             WARNF("Test case results in a timeout (skipping)");
-            q->cal_failed = CAL_CHANCES;
-            cal_failures++;
+            q->cal_failed = CAL_CHANCES;//giving up(testしない) flagを立てる
+            cal_failures++;//cal_failuresの数を増やす
             break;
           }
 
@@ -2779,9 +2779,9 @@ static void perform_dry_run(char** argv) {
 
       case FAULT_CRASH:  
 
-        if (crash_mode) break;
+        if (crash_mode) break;// crash_modeであればreturn
 
-        if (skip_crashes) {
+        if (skip_crashes) {// skip_crashes(AFL_SKIP_CRASHES)であれば
           WARNF("Test case results in a crash (skipping)");
           q->cal_failed = CAL_CHANCES;
           cal_failures++;
@@ -2871,11 +2871,11 @@ static void perform_dry_run(char** argv) {
 
     if (q->var_behavior) WARNF("Instrumentation output varies across runs.");
 
-    q = q->next;
+    q = q->next;//次のqueueにする
 
   }
 
-  if (cal_failures) {
+  if (cal_failures) {// cal_failuresがあれば
 
     if (cal_failures == queued_paths)
       FATAL("All test cases time out%s, giving up!",
@@ -7966,7 +7966,7 @@ int main(int argc, char** argv) {
 
   detect_file_args(argv + optind + 1);// argvの中にある@@を見つけて処理する
 
-  if (!out_file) setup_stdio_file();// outfileがない場合.cur_inputの設定をする
+  if (!out_file) setup_stdio_file();// outfileがない場合.cur_input(calibrationでつかう)の設定をする
 
   check_binary(argv[optind]);//実行ファイルのアクセスチェック後、AFL_SKIP_BIN_CHECKがあれば途中でスキップする
 
