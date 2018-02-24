@@ -1981,13 +1981,13 @@ EXP_ST void init_forkserver(char** argv) {
 
   ACTF("Spinning up the fork server...");
 
-  if (pipe(st_pipe) || pipe(ctl_pipe)) PFATAL("pipe() failed");
+  if (pipe(st_pipe) || pipe(ctl_pipe)) PFATAL("pipe() failed");// statu pipeとcontrol pipeの作成
 
-  forksrv_pid = fork();
+  forksrv_pid = fork();// fork serverのpidを作成
 
   if (forksrv_pid < 0) PFATAL("fork() failed");
 
-  if (!forksrv_pid) {
+  if (!forksrv_pid) {//pidが0（子プロセス）の場合
 
     struct rlimit r;
 
@@ -2001,7 +2001,7 @@ EXP_ST void init_forkserver(char** argv) {
 
     }
 
-    if (mem_limit) {
+    if (mem_limit) {// mem limitが作成されていれば
 
       r.rlim_max = r.rlim_cur = ((rlim_t)mem_limit) << 20;
 
@@ -2025,19 +2025,19 @@ EXP_ST void init_forkserver(char** argv) {
     /* Dumping cores is slow and can lead to anomalies if SIGKILL is delivered
        before the dump is complete. */
 
-    r.rlim_max = r.rlim_cur = 0;
+    r.rlim_max = r.rlim_cur = 0;//SIGKILLがdumpされる前に発行されたら
 
     setrlimit(RLIMIT_CORE, &r); /* Ignore errors */
 
     /* Isolate the process and configure standard descriptors. If out_file is
        specified, stdin is /dev/null; otherwise, out_fd is cloned instead. */
 
-    setsid();
+    setsid();//新たなセッションIDを子プロセスにコピー
 
     dup2(dev_null_fd, 1);
     dup2(dev_null_fd, 2);
 
-    if (out_file) {
+    if (out_file) {//.cur_inputがある場合
 
       dup2(dev_null_fd, 0);
 
@@ -2050,9 +2050,9 @@ EXP_ST void init_forkserver(char** argv) {
 
     /* Set up control and status pipes, close the unneeded original fds. */
 
-    if (dup2(ctl_pipe[0], FORKSRV_FD) < 0) PFATAL("dup2() failed");
-    if (dup2(st_pipe[1], FORKSRV_FD + 1) < 0) PFATAL("dup2() failed");
-
+    if (dup2(ctl_pipe[0], FORKSRV_FD) < 0) PFATAL("dup2() failed");// FORKSRV_FDにcntrolのreadをコピー
+    if (dup2(st_pipe[1], FORKSRV_FD + 1) < 0) PFATAL("dup2() failed");// FORKSRV_FDにstatusのwriteをコピー
+// コピー終わったあとに子プロセス側で必要ないものは全て閉じる
     close(ctl_pipe[0]);
     close(ctl_pipe[1]);
     close(st_pipe[0]);
@@ -2065,7 +2065,7 @@ EXP_ST void init_forkserver(char** argv) {
 
     /* This should improve performance a bit, since it stops the linker from
        doing extra work post-fork(). */
-
+// defaultの場合ASANとMSANのオプションを有効にする
     if (!getenv("LD_BIND_LAZY")) setenv("LD_BIND_NOW", "1", 0);
 
     /* Set sane defaults for ASAN if nothing else specified. */
@@ -2084,55 +2084,55 @@ EXP_ST void init_forkserver(char** argv) {
                            "allocator_may_return_null=1:"
                            "msan_track_origins=0", 0);
 
-    execv(target_path, argv);
+    execv(target_path, argv);//target_pathにある実行ファイルを動かす
 
     /* Use a distinctive bitmap signature to tell the parent about execv()
        falling through. */
 
-    *(u32*)trace_bits = EXEC_FAIL_SIG;
-    exit(0);
+    *(u32*)trace_bits = EXEC_FAIL_SIG;//親に知らせるためのシグナルとして、現在のtrace_bitにsignalをいれる
+    exit(0);//子プロセスの終了
 
   }
-
+//親プロセス
   /* Close the unneeded endpoints. */
 
-  close(ctl_pipe[0]);
-  close(st_pipe[1]);
+  close(ctl_pipe[0]);// cntrolのread側を閉じる
+  close(st_pipe[1]);// statusのwrite側を閉じる
 
   fsrv_ctl_fd = ctl_pipe[1];
   fsrv_st_fd  = st_pipe[0];
 
   /* Wait for the fork server to come up, but don't wait too long. */
-
+// 子プロセスを待つ時間を設定
   it.it_value.tv_sec = ((exec_tmout * FORK_WAIT_MULT) / 1000);
   it.it_value.tv_usec = ((exec_tmout * FORK_WAIT_MULT) % 1000) * 1000;
 
-  setitimer(ITIMER_REAL, &it, NULL);
+  setitimer(ITIMER_REAL, &it, NULL);//時間を設定する(時間を超えたらSIGVTALRMが発生)
 
-  rlen = read(fsrv_st_fd, &status, 4);
+  rlen = read(fsrv_st_fd, &statuls, 4);
 
   it.it_value.tv_sec = 0;
   it.it_value.tv_usec = 0;
 
-  setitimer(ITIMER_REAL, &it, NULL);
+  setitimer(ITIMER_REAL, &it, NULL);//時間切れのあとタイマーを無効(SIGVTALRMを発生させないよう)に設定
 
   /* If we have a four-byte "hello" message from the server, we're all set.
      Otherwise, try to figure out what went wrong. */
 
-  if (rlen == 4) {
+  if (rlen == 4) {// 子プロセスからstatusをreadする長さが4byteだった場合
     OKF("All right - fork server is up.");
-    return;
+    return;//fork serverの立ち上げが完了
   }
-
+// 以下は様々なエラー処理
   if (child_timed_out)
     FATAL("Timeout while initializing fork server (adjusting -t may help)");
 
   if (waitpid(forksrv_pid, &status, 0) <= 0)
-    PFATAL("waitpid() failed");
+    PFATAL("waitpid() failed");// waitpidが失敗した時
 
-  if (WIFSIGNALED(status)) {
+  if (WIFSIGNALED(status)) {//signal statusを持っていた場合
 
-    if (mem_limit && mem_limit < 500 && uses_asan) {
+    if (mem_limit && mem_limit < 500 && uses_asan) {// mem_limitがあり、それが500より小さくでASAN flagが立っていた時
 
       SAYF("\n" cLRD "[-] " cRST
            "Whoops, the target binary crashed suddenly, before receiving any input\n"
@@ -2140,7 +2140,7 @@ EXP_ST void init_forkserver(char** argv) {
            "    restrictive memory limit configured, this is expected; please read\n"
            "    %s/notes_for_asan.txt for help.\n", doc_path);
 
-    } else if (!mem_limit) {
+    } else if (!mem_limit) {//mem_limitがない場合
 
       SAYF("\n" cLRD "[-] " cRST
            "Whoops, the target binary crashed suddenly, before receiving any input\n"
@@ -2202,7 +2202,7 @@ EXP_ST void init_forkserver(char** argv) {
   }
 
   if (*(u32*)trace_bits == EXEC_FAIL_SIG)
-    FATAL("Unable to execute target application ('%s')", argv[0]);
+    FATAL("Unable to execute target application ('%s')", argv[0]);//trace_bitにEXEC_FAIL_SIGが入った状態でここまでたどり着いた時のエラー処理
 
   if (mem_limit && mem_limit < 500 && uses_asan) {
 
@@ -2552,7 +2552,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   q->cal_failed++;
 
   stage_name = "calibration";// stageの名前をclibrationにする
-  stage_max  = fast_cal ? 3 : CAL_CYCLES;// fast_calであれば3,そうでなければCAL_CYCLES
+  stage_max  = fast_cal ? 3 : CAL_CYCLES;// fast_calであれば3,そうでなければCAL_CYCLES(8)
 
   /* Make sure the forkserver is up before we do anything, and let's not
      count its spin-up time toward binary calibration. */
@@ -7992,7 +7992,7 @@ int main(int argc, char** argv) {
 
   /* Woop woop woop */
 
-  if (!not_on_tty) {// not_on_tty flagが立っていたら4秒間停止する。このときstop_soon flagが立っていたら終了
+  if (!not_on_tty) {// not_on_tty flag(UI flag)が立っていなかったら4秒間停止する。このときstop_soon flagが立っていたら終了
     sleep(4);
     start_time += 4000;
     if (stop_soon) goto stop_fuzzing;
