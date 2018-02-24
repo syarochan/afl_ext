@@ -903,7 +903,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
     if (unlikely(*current) && unlikely(*current & *virgin)) {
 
-      if (likely(ret < 2)) {
+      if (likely(ret < 2)) {//retが2より小さい場合
 
         u8* cur = (u8*)current;
         u8* vir = (u8*)virgin;
@@ -929,7 +929,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
       }
 
-      *virgin &= ~*current;
+      *virgin &= ~*current;//curentを反転させてandをとったものをvirginに入れる
 
     }
 
@@ -938,7 +938,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
   }
 
-  if (ret && virgin_map == virgin_bits) bitmap_changed = 1;
+  if (ret && virgin_map == virgin_bits) bitmap_changed = 1;// virgin_mapとvirgin_bitsが一緒であればchanged flagを立てる
 
   return ret;
 
@@ -1151,7 +1151,7 @@ static inline void classify_counts(u64* mem) {
 
     /* Optimize for sparse bitmaps. */
 
-    if (unlikely(*mem)) {
+    if (unlikely(*mem)) {//memに何らかの値が入っていたら
 
       u16* mem16 = (u16*)mem;
 
@@ -1162,7 +1162,7 @@ static inline void classify_counts(u64* mem) {
 
     }
 
-    mem++;
+    mem++;//次のmemに移動する
 
   }
 
@@ -2041,7 +2041,7 @@ EXP_ST void init_forkserver(char** argv) {
 
       dup2(dev_null_fd, 0);
 
-    } else {
+    } else {//ない場合
 
       dup2(out_fd, 0);
       close(out_fd);
@@ -2272,20 +2272,20 @@ static u8 run_target(char** argv, u32 timeout) {
      territory. */
 
   memset(trace_bits, 0, MAP_SIZE);
-  MEM_BARRIER();
+  MEM_BARRIER();//前後の読み書きの命令を入換を禁止するメモリオーダリング
 
   /* If we're running in "dumb" mode, we can't rely on the fork server
      logic compiled into the target program, so we will just keep calling
      execve(). There is a bit of code duplication between here and 
      init_forkserver(), but c'est la vie. */
 
-  if (dumb_mode == 1 || no_forkserver) {
+  if (dumb_mode == 1 || no_forkserver) {//dumb_modeであり、またはno_fork_serverではないとき
 
     child_pid = fork();
 
     if (child_pid < 0) PFATAL("fork() failed");
 
-    if (!child_pid) {
+    if (!child_pid) {// 子プロセスの時
 
       struct rlimit r;
 
@@ -2356,20 +2356,20 @@ static u8 run_target(char** argv, u32 timeout) {
 
     }
 
-  } else {
+  } else {// dumb_mode =1またはno_fork_server以外の時
 
     s32 res;
 
     /* In non-dumb mode, we have the fork server up and running, so simply
        tell it to have at it, and then read back PID. */
-
+// fork serverが親プロセスであるchildプロセスにprev_time_outの内容を書き込む
     if ((res = write(fsrv_ctl_fd, &prev_timed_out, 4)) != 4) {
 
       if (stop_soon) return 0;
       RPFATAL(res, "Unable to request new process from fork server (OOM?)");
 
     }
-
+// fork serverにchild_pidを送る
     if ((res = read(fsrv_st_fd, &child_pid, 4)) != 4) {
 
       if (stop_soon) return 0;
@@ -2379,7 +2379,7 @@ static u8 run_target(char** argv, u32 timeout) {
 
     if (child_pid <= 0) FATAL("Fork server is misbehaving (OOM?)");
 
-  }
+  }//親プロセスの時またはfork serverのとき
 
   /* Configure timeout, as requested by user, then wait for child to terminate. */
 
@@ -2397,7 +2397,7 @@ static u8 run_target(char** argv, u32 timeout) {
   } else {
 
     s32 res;
-
+// fork serverにstatusを送る
     if ((res = read(fsrv_st_fd, &status, 4)) != 4) {
 
       if (stop_soon) return 0;
@@ -2414,31 +2414,31 @@ static u8 run_target(char** argv, u32 timeout) {
 
   setitimer(ITIMER_REAL, &it, NULL);
 
-  total_execs++;
+  total_execs++; // 実行回数を増やす
 
   /* Any subsequent operations on trace_bits must not be moved by the
      compiler below this point. Past this location, trace_bits[] behave
      very normally and do not have to be treated as volatile. */
 
-  MEM_BARRIER();
+  MEM_BARRIER();//前後の読み書きを順番通りに実行させる(マルチスレッドでメモリ同期の対策)
 
   tb4 = *(u32*)trace_bits;
 
 #ifdef __x86_64__
-  classify_counts((u64*)trace_bits);
+  classify_counts((u64*)trace_bits);// trace_bitsを数字(hit count)に入れ替える
 #else
   classify_counts((u32*)trace_bits);
 #endif /* ^__x86_64__ */
 
-  prev_timed_out = child_timed_out;
+  prev_timed_out = child_timed_out;// prev_timed_outに現在のchild_timed_outを入れる
 
   /* Report outcome to caller. */
 
-  if (WIFSIGNALED(status) && !stop_soon) {
+  if (WIFSIGNALED(status) && !stop_soon) {//子プロセスがシグナルにより終了した場合かつstop_soon flagが立っていない場合
 
-    kill_signal = WTERMSIG(status);
+    kill_signal = WTERMSIG(status);//子プロセス終了の原因となったシグナルの番号を返す。
 
-    if (child_timed_out && kill_signal == SIGKILL) return FAULT_TMOUT;
+    if (child_timed_out && kill_signal == SIGKILL) return FAULT_TMOUT;//child_time_outがありかつSIGKILLだった場合
 
     return FAULT_CRASH;
 
@@ -2447,15 +2447,15 @@ static u8 run_target(char** argv, u32 timeout) {
   /* A somewhat nasty hack for MSAN, which doesn't support abort_on_error and
      must use a special exit code. */
 
-  if (uses_asan && WEXITSTATUS(status) == MSAN_ERROR) {
-    kill_signal = 0;
+  if (uses_asan && WEXITSTATUS(status) == MSAN_ERROR) {// ASANが使われていてMSANのエラーだった場合
+    kill_signal = 0;// kill_siganlを0にする(特殊なエラー処理を行うため)
     return FAULT_CRASH;
   }
 
   if ((dumb_mode == 1 || no_forkserver) && tb4 == EXEC_FAIL_SIG)
-    return FAULT_ERROR;
+    return FAULT_ERROR;//dumb modeでありまたはfork serverではない場合かつ実行エラーの時
 
-  return FAULT_NONE;
+  return FAULT_NONE;//どの条件にも当てはまらなかった時
 
 }
 
@@ -2476,16 +2476,16 @@ static void write_to_testcase(void* mem, u32 len) {
 
     if (fd < 0) PFATAL("Unable to create '%s'", out_file);
 
-  } else lseek(fd, 0, SEEK_SET);
+  } else lseek(fd, 0, SEEK_SET);// fdのポインタを先頭に移動
 
   ck_write(fd, mem, len, out_file);//out_fileに書き込む
 
-  if (!out_file) {
-
+  if (!out_file) {//out_fileがない場合は何もしない
+// fd長さが、lenより長い場合はlenの長さまで切り取り、lenまで足りなければ伸ばす
     if (ftruncate(fd, len)) PFATAL("ftruncate() failed");
-    lseek(fd, 0, SEEK_SET);
+    lseek(fd, 0, SEEK_SET);// fdのポインタを先頭に移動
 
-  } else close(fd);
+  } else close(fd);//out_fileがある場合はディスクリプタを閉じる
 
 }
 
@@ -2572,46 +2572,46 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
     write_to_testcase(use_mem, q->len);// out_fileにuse_memの内容を書き込む
 
-    fault = run_target(argv, use_tmout);
+    fault = run_tarlget(argv, use_tmout);// execをforkさせて実行させた時のステータスを親プロセスで取得する
 
     /* stop_soon is set by the handler for Ctrl+C. When it's pressed,
        we want to bail out quickly. */
-
+// stop_soonまたはfalutがcrash_modeと一致しなかったら
     if (stop_soon || fault != crash_mode) goto abort_calibration;
 
-    if (!dumb_mode && !stage_cur && !count_bytes(trace_bits)) {
-      fault = FAULT_NOINST;
+    if (!dumb_mode && !stage_cur && !count_bytes(trace_bits)) {// dumb_modeではないかつstage_curが0かつtrace_bitsの数が0の場合
+      fault = FAULT_NOINST;// faultをFAULT_NOINSTにする
       goto abort_calibration;
     }
 
-    cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+    cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);//trace_bitsを使ってhashを生成
 
-    if (q->exec_cksum != cksum) {
+    if (q->exec_cksum != cksum) {//checksumが違った場合
 
-      u8 hnb = has_new_bits(virgin_bits);
+      u8 hnb = has_new_bits(virgin_bits); 
       if (hnb > new_bits) new_bits = hnb;
 
-      if (q->exec_cksum) {
+      if (q->exec_cksum) {// checksumがあった場合
 
         u32 i;
 
         for (i = 0; i < MAP_SIZE; i++) {
 
-          if (!var_bytes[i] && first_trace[i] != trace_bits[i]) {
+          if (!var_bytes[i] && first_trace[i] != trace_bits[i]) {// var_bytesが0でかつfirst traceとtracebitsが一致しなければ
 
-            var_bytes[i] = 1;
-            stage_max    = CAL_CYCLES_LONG;
+            var_bytes[i] = 1;// 変数があるflagを立てる
+            stage_max    = CAL_CYCLES_LONG;// stageをのばす
 
           }
 
         }
 
-        var_detected = 1;
+        var_detected = 1;//var_detected flagを立てる
 
-      } else {
+      } else {//checksumがなかった場合
 
-        q->exec_cksum = cksum;
-        memcpy(first_trace, trace_bits, MAP_SIZE);
+        q->exec_cksum = cksum;//hash化したものを挿入する
+        memcpy(first_trace, trace_bits, MAP_SIZE);//first traceにtrace_bitsをコピーする
 
       }
 
@@ -2619,18 +2619,18 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
   }
 
-  stop_us = get_cur_time_us();
+  stop_us = get_cur_time_us();//queueのstage trace終了時間を取得する
 
   total_cal_us     += stop_us - start_us;
-  total_cal_cycles += stage_max;
+  total_cal_cycles += stage_max;//実行した回数だけ増やす
 
   /* OK, let's collect some stats about the performance of this test case.
      This is used for fuzzing air time calculations in calculate_score(). */
 
-  q->exec_us     = (stop_us - start_us) / stage_max;
-  q->bitmap_size = count_bytes(trace_bits);
-  q->handicap    = handicap;
-  q->cal_failed  = 0;
+  q->exec_us     = (stop_us - start_us) / stage_max;//1つあたりの実行時間
+  q->bitmap_size = count_bytes(trace_bits);// trace_bitsの数
+  q->handicap    = handicap;//残りのqueueの数
+  q->cal_failed  = 0;//caliburate関数が失敗したか
 
   total_bitmap_size += q->bitmap_size;
   total_bitmap_entries++;
