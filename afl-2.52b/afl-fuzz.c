@@ -723,7 +723,7 @@ static void mark_as_variable(struct queue_entry* q) {
   ldest = alloc_printf("../../%s", fn);
   fn = alloc_printf("%s/queue/.state/variable_behavior/%s", out_dir, fn);
 
-  if (symlink(ldest, fn)) {
+  if (symlink(ldest, fn)) {// ldestのlinkをfnに作成する
 
     s32 fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
     if (fd < 0) PFATAL("Unable to create '%s'", fn);
@@ -734,7 +734,7 @@ static void mark_as_variable(struct queue_entry* q) {
   ck_free(ldest);
   ck_free(fn);
 
-  q->var_behavior = 1;
+  q->var_behavior = 1;//var_behavisor flagを立てる
 
 }
 
@@ -1236,33 +1236,33 @@ static void minimize_bits(u8* dst, u8* src) {
 static void update_bitmap_score(struct queue_entry* q) {
 
   u32 i;
-  u64 fav_factor = q->exec_us * q->len;
+  u64 fav_factor = q->exec_us * q->len;// 現在のqueueの実行時間と長さを掛けあわせた
 
   /* For every byte set in trace_bits[], see if there is a previous winner,
      and how it compares to us. */
 
   for (i = 0; i < MAP_SIZE; i++)
 
-    if (trace_bits[i]) {
+    if (trace_bits[i]) {//trace_bitsがあった場合
 
-       if (top_rated[i]) {
+       if (top_rated[i]) {//top_ratedがあった場合
 
          /* Faster-executing or smaller test cases are favored. */
 
-         if (fav_factor > top_rated[i]->exec_us * top_rated[i]->len) continue;
+         if (fav_factor > top_rated[i]->exec_us * top_rated[i]->len) continue;// 前の結果が良かったらスルー
 
          /* Looks like we're going to win. Decrease ref count for the
             previous winner, discard its trace_bits[] if necessary. */
 
-         if (!--top_rated[i]->tc_ref) {
-           ck_free(top_rated[i]->trace_mini);
-           top_rated[i]->trace_mini = 0;
+         if (!--top_rated[i]->tc_ref) {// top_ratedのリファレンスカウントを減らして0だった場合
+           ck_free(top_rated[i]->trace_mini);// trace_bitsのbytesを解放
+           top_rated[i]->trace_mini = 0;// ポインタの初期化
          }
 
        }
 
        /* Insert ourselves as the new winner. */
-
+// top_ratedがなかった場合、また、top_ratedがあってもtrace_bitsが優れていた場合top_ratedにqueueに入れる
        top_rated[i] = q;
        q->tc_ref++;
 
@@ -2549,7 +2549,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
     use_tmout = MAX(exec_tmout + CAL_TMOUT_ADD,
                     exec_tmout * CAL_TMOUT_PERC / 100);// form_queueまたは、resuming_fuzzがあれば
 
-  q->cal_failed++;
+  q->cal_failed++;// calibrate失敗flagを加算する
 
   stage_name = "calibration";// stageの名前をclibrationにする
   stage_max  = fast_cal ? 3 : CAL_CYCLES;// fast_calであれば3,そうでなければCAL_CYCLES(8)
@@ -2572,7 +2572,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
     write_to_testcase(use_mem, q->len);// out_fileにuse_memの内容を書き込む
 
-    fault = run_tarlget(argv, use_tmout);// execをforkさせて実行させた時のステータスを親プロセスで取得する
+    fault = run_target(argv, use_tmout);// execをforkさせて実行させた時のステータスを親プロセスで取得する
 
     /* stop_soon is set by the handler for Ctrl+C. When it's pressed,
        we want to bail out quickly. */
@@ -2630,44 +2630,44 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
   q->exec_us     = (stop_us - start_us) / stage_max;//1つあたりの実行時間
   q->bitmap_size = count_bytes(trace_bits);// trace_bitsの数
   q->handicap    = handicap;//残りのqueueの数
-  q->cal_failed  = 0;//caliburate関数が失敗したか
+  q->cal_failed  = 0;//caliburate関数が失敗したflagをクリアにする(成功したので)
 
-  total_bitmap_size += q->bitmap_size;
-  total_bitmap_entries++;
+  total_bitmap_size += q->bitmap_size;// qそれぞれのtrace bitsの数を更新
+  total_bitmap_entries++;// bitmapの数を更新
 
-  update_bitmap_score(q);
+  update_bitmap_score(q);//bit_map_scoreの変更
 
   /* If this case didn't result in new output from the instrumentation, tell
      parent. This is a non-critical problem, but something to warn the user
      about. */
-
+// dumb_modeではないかつfirst_runかつfaultが0かつnew_bitsが0の場合
   if (!dumb_mode && first_run && !fault && !new_bits) fault = FAULT_NOBITS;
 
 abort_calibration:
 
-  if (new_bits == 2 && !q->has_new_cov) {
-    q->has_new_cov = 1;
-    queued_with_cov++;
+  if (new_bits == 2 && !q->has_new_cov) {// new_bits == 2かつhas_new_cov flagが立っていない時
+    q->has_new_cov = 1;//新たなカバー範囲を見つけたというflagを立てる
+    queued_with_cov++;//新たなカバー範囲のbytesをみつけたことを加算する
   }
 
   /* Mark variable paths. */
 
-  if (var_detected) {
+  if (var_detected) {// var_detected=1のとき
 
-    var_byte_count = count_bytes(var_bytes);
+    var_byte_count = count_bytes(var_bytes);// var_bytesの数をカウント
 
-    if (!q->var_behavior) {
-      mark_as_variable(q);
-      queued_variable++;
+    if (!q->var_behavior) {// var_behavisorをもっていなければ
+      mark_as_variable(q);//variable_behaviorのmarkを行うl
+      queued_variable++;// queuedされているvariableの数を加算する
     }
 
   }
-
+// 元に持っていた値を戻す
   stage_name = old_sn;
   stage_cur  = old_sc;
   stage_max  = old_sm;
 
-  if (!first_run) show_stats();
+  if (!first_run) show_stats();//first_runでなければUIを更新する
 
   return fault;
 
