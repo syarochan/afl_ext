@@ -1214,8 +1214,8 @@ static void minimize_bits(u8* dst, u8* src) {
   u32 i = 0;
 
   while (i < MAP_SIZE) {
-
-    if (*(src++)) dst[i >> 3] |= 1 << (i & 7);
+//srcがあるとき、dstにいれる(0から3でまわるようになっている)
+    if (*(src++)) dst[i >> 3] |= 1 << (i & 7);// 1から7でまわるようになっている
     i++;
 
   }
@@ -1264,14 +1264,14 @@ static void update_bitmap_score(struct queue_entry* q) {
        /* Insert ourselves as the new winner. */
 // top_ratedがなかった場合、また、top_ratedがあってもtrace_bitsが優れていた場合top_ratedにqueueに入れる
        top_rated[i] = q;
-       q->tc_ref++;
+       q->tc_ref++;// queueの参照カウントを加算する
 
-       if (!q->trace_mini) {
+       if (!q->trace_mini) {// trace_miniが0だった場合
          q->trace_mini = ck_alloc(MAP_SIZE >> 3);
-         minimize_bits(q->trace_mini, trace_bits);
+         minimize_bits(q->trace_mini, trace_bits);//小さなtrace_bytesをsmall bitmapに入れる
        }
 
-       score_changed = 1;
+       score_changed = 1;// score change flagを立てる
 
      }
 
@@ -2783,8 +2783,8 @@ static void perform_dry_run(char** argv) {
 
         if (skip_crashes) {// skip_crashes(AFL_SKIP_CRASHES)であれば
           WARNF("Test case results in a crash (skipping)");
-          q->cal_failed = CAL_CHANCES;
-          cal_failures++;
+          q->cal_failed = CAL_CHANCES;// 次はtestしないflagを立てる
+          cal_failures++;// cal_failuresの数を加算する
           break;
         }
 
@@ -2860,7 +2860,7 @@ static void perform_dry_run(char** argv) {
 
       case FAULT_NOBITS: 
 
-        useless_at_start++;
+        useless_at_start++;//使用しないpathの数のカウント
 
         if (!in_bitmap && !shuffle_queue)
           WARNF("No new instrumentation output, test case may be useless.");
@@ -2886,7 +2886,7 @@ static void perform_dry_run(char** argv) {
           skip_crashes ? " or crashes" : "");
 
     if (cal_failures * 5 > queued_paths)
-      WARNF(cLRD "High percentage of rejected test cases, check settings!");
+      WARNF(cLRD "High percentage of rejected test cases, check settings!");// queue pathsの数よりも5倍ちかく多いとtest caseが弾かれすぎていることで警告
 
   }
 
