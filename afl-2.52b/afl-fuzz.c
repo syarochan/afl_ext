@@ -136,11 +136,11 @@ static s32 forksrv_pid,               /* PID of the fork server           */
 
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
 
-EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */
-           virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */
-           virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */
+EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */// まだfuzzingされていない地域
+           virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */// time outの中で見たことないbit
+           virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */// crashesの中で見たことないbit
 
-static u8  var_bytes[MAP_SIZE];       /* Bytes that appear to be variable */
+static u8  var_bytes[MAP_SIZE];       /* Bytes that appear to be variable */// 変数とみなされるバイト
 
 static s32 shm_id;                    /* ID of the SHM region             */
 
@@ -840,11 +840,11 @@ EXP_ST void write_bitmap(void) {
   bitmap_changed = 0;
 
   fname = alloc_printf("%s/fuzz_bitmap", out_dir);
-  fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  fd = open(fname, O_WRONLY | O_CREAT | O_TRUNC, 0600);// fuzz_bitmapの作成
 
   if (fd < 0) PFATAL("Unable to open '%s'", fname);
 
-  ck_write(fd, virgin_bits, MAP_SIZE, fname);
+  ck_write(fd, virgin_bits, MAP_SIZE, fname);//fuzz_bitmapにvirgin_bitsを書き込む
 
   close(fd);
   ck_free(fname);
@@ -2356,7 +2356,7 @@ static u8 run_target(char** argv, u32 timeout) {
 
     }
 
-  } else {// dumb_mode =1またはno_fork_server以外の時
+  } else {// dumb_mode != 1またはno_fork_server以外の時
 
     s32 res;
 
@@ -2657,7 +2657,7 @@ abort_calibration:
     var_byte_count = count_bytes(var_bytes);// var_bytesの数をカウント
 
     if (!q->var_behavior) {// var_behavisorをもっていなければ
-      mark_as_variable(q);//variable_behaviorのmarkを行うl
+      mark_as_variable(q);//variable_behaviorのmarkを行う
       queued_variable++;// queuedされているvariableの数を加算する
     }
 
@@ -3027,18 +3027,18 @@ static u8* describe_op(u8 hnb) {
 
   static u8 ret[256];
 
-  if (syncing_party) {
+  if (syncing_party) {// syncing_partyがあれば
 
     sprintf(ret, "sync:%s,src:%06u", syncing_party, syncing_case);
 
-  } else {
+  } else {// syncing_partyがない場合
 
     sprintf(ret, "src:%06u", current_entry);
 
     if (splicing_with >= 0)
-      sprintf(ret + strlen(ret), "+%06u", splicing_with);
+      sprintf(ret + strlen(ret), "+%06u", splicing_with);//spliceing_withがあれば
 
-    sprintf(ret + strlen(ret), ",op:%s", stage_short);
+    sprintf(ret + strlen(ret), ",op:%s", stage_short);//spliceing_withがなければ
 
     if (stage_cur_byte >= 0) {
 
@@ -3047,15 +3047,15 @@ static u8* describe_op(u8 hnb) {
       if (stage_val_type != STAGE_VAL_NONE)
         sprintf(ret + strlen(ret), ",val:%s%+d", 
                 (stage_val_type == STAGE_VAL_BE) ? "be:" : "",
-                stage_cur_val);
+                stage_cur_val);//stage_val_typeがSTAGE_VAL_NONEでない。STAGE_VAL_BEであればbe:をつける
 
-    } else sprintf(ret + strlen(ret), ",rep:%u", stage_cur_val);
+    } else sprintf(ret + strlen(ret), ",rep:%u", stage_cur_val);//STAGE_VAL_NONEである場合
 
   }
 
-  if (hnb == 2) strcat(ret, ",+cov");
+  if (hnb == 2) strcat(ret, ",+cov");// new tuplesを見つけた場合",+conv"をつける
 
-  return ret;
+  return ret;//完成した文字列を返す
 
 }
 
@@ -3120,13 +3120,13 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
   s32 fd;
   u8  keeping = 0, res;
 
-  if (fault == crash_mode) {
+  if (fault == crash_mode) {// faultがcrash modeと同じであればkeeping flagを立てる
 
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
 
-    if (!(hnb = has_new_bits(virgin_bits))) {
-      if (crash_mode) total_crashes++;
+    if (!(hnb = has_new_bits(virgin_bits))) {// new bitだけを残して将来のfuzzingなどに備える
+      if (crash_mode) total_crashes++;// crash_modeがあればtotal_crashesの数を増やす
       return 0;
     }    
 
@@ -3141,9 +3141,9 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
 #endif /* ^!SIMPLE_FILES */
 
-    add_to_queue(fn, len, 0);
+    add_to_queue(fn, len, 0);//syncから持ってきたqueueを加える
 
-    if (hnb == 2) {
+    if (hnb == 2) {//new tuplesを見つけた場合のみ
       queue_top->has_new_cov = 1;
       queued_with_cov++;
     }
@@ -3153,14 +3153,14 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
     /* Try to calibrate inline; this also calls update_bitmap_score() when
        successful. */
 
-    res = calibrate_case(argv, queue_top, mem, queue_cycle - 1, 0);
+    res = calibrate_case(argv, queue_top, mem, queue_cycle - 1, 0);//calibrateをinlineで行い、成功した時にupdate_bitmap_scoreも更新される
 
     if (res == FAULT_ERROR)
       FATAL("Unable to execute target application");
 
-    fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);//queueを開く
     if (fd < 0) PFATAL("Unable to create '%s'", fn);
-    ck_write(fd, mem, len, fn);
+    ck_write(fd, mem, len, fn);// queueに対してmemの内容を書き込む
     close(fd);
 
     keeping = 1;
@@ -3178,37 +3178,37 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
       total_tmouts++;
 
-      if (unique_hangs >= KEEP_UNIQUE_HANG) return keeping;
+      if (unique_hangs >= KEEP_UNIQUE_HANG) return keeping;//unique_hangsの数が500以上であればkeepingを返す
 
       if (!dumb_mode) {
 
 #ifdef __x86_64__
-        simplify_trace((u64*)trace_bits);
+        simplify_trace((u64*)trace_bits);//hitcountとreplacing(0x80か0x01でマークされている)を行う
 #else
         simplify_trace((u32*)trace_bits);
 #endif /* ^__x86_64__ */
 
-        if (!has_new_bits(virgin_tmout)) return keeping;
+        if (!has_new_bits(virgin_tmout)) return keeping;// 見たことがないtime out(hit countの変更とnew tuple)がなければreturn
 
       }
 
-      unique_tmouts++;
+      unique_tmouts++;//unique time outの数を増やす
 
       /* Before saving, we make sure that it's a genuine hang by re-running
          the target with a more generous timeout (unless the default timeout
          is already generous). */
 
-      if (exec_tmout < hang_tmout) {
+      if (exec_tmout < hang_tmout) {//userが設定したmsよりもhang_tmout(1000ms)が大きい場合
 
         u8 new_fault;
         write_to_testcase(mem, len);
-        new_fault = run_target(argv, hang_tmout);
+        new_fault = run_target(argv, hang_tmout);//時間的に長い方でもう一度試してみる
 
         /* A corner case that one user reported bumping into: increasing the
            timeout actually uncovers a crash. Make sure we don't discard it if
            so. */
 
-        if (!stop_soon && new_fault == FAULT_CRASH) goto keep_as_crash;
+        if (!stop_soon && new_fault == FAULT_CRASH) goto keep_as_crash;//以降のuniq_hangsの処理はせずFAULT_CRASHの処理に行く
 
         if (stop_soon || new_fault != FAULT_TMOUT) return keeping;
 
@@ -3226,7 +3226,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
 #endif /* ^!SIMPLE_FILES */
 
-      unique_hangs++;
+      unique_hangs++;//uniq hangsの数を増やす
 
       last_hang_time = get_cur_time();
 
@@ -3256,7 +3256,7 @@ keep_as_crash:
 
       }
 
-      if (!unique_crashes) write_crash_readme();
+      if (!unique_crashes) write_crash_readme();// unique crashesの数が0だった場合
 
 #ifndef SIMPLE_FILES
 
@@ -3288,7 +3288,7 @@ keep_as_crash:
 
   fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
   if (fd < 0) PFATAL("Unable to create '%s'", fn);
-  ck_write(fd, mem, len, fn);
+  ck_write(fd, mem, len, fn);//hangsまたはcrashesしたcaseをディレクトリに残す
   close(fd);
 
   ck_free(fn);
@@ -3375,7 +3375,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
 
   static double last_bcvg, last_stab, last_eps;
 
-  u8* fn = alloc_printf("%s/fuzzer_stats", out_dir);
+  u8* fn = alloc_printf("%s/fuzzer_stats", out_dir);//fuzzer_statsに書き込むための準備をする
   s32 fd;
   FILE* f;
 
@@ -4621,8 +4621,8 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
   }
 
   /* This handles FAULT_ERROR for us: */
-
-  queued_discovered += save_if_interesting(argv, out_buf, len, fault);
+// faultの内容を振り分けたあとにstatusを更新する
+  queued_discovered += save_if_interesting(argv, out_buf, len, fault);//faultがcrash modeであれば1がreturnされる
 
   if (!(stage_cur % stats_update_freq) || stage_cur + 1 == stage_max)
     show_stats();
@@ -6648,14 +6648,14 @@ static void sync_fuzzers(char** argv) {
     s32 id_fd;
 
     /* Skip dot files and our own output directory. */
-
+// dot filesと自分自身のoutputディレクトリはスキップ
     if (sd_ent->d_name[0] == '.' || !strcmp(sync_id, sd_ent->d_name)) continue;
 
     /* Skip anything that doesn't have a queue/ subdirectory. */
-
+// syncのディレクトリのqueueを開く
     qd_path = alloc_printf("%s/%s/queue", sync_dir, sd_ent->d_name);
 
-    if (!(qd = opendir(qd_path))) {
+    if (!(qd = opendir(qd_path))) {//openできなかった場合
       ck_free(qd_path);
       continue;
     }
@@ -6664,14 +6664,14 @@ static void sync_fuzzers(char** argv) {
 
     qd_synced_path = alloc_printf("%s/.synced/%s", out_dir, sd_ent->d_name);
 
-    id_fd = open(qd_synced_path, O_RDWR | O_CREAT, 0600);
+    id_fd = open(qd_synced_path, O_RDWR | O_CREAT, 0600);//out_dirの.syncedディレクトリ内でディレクトリfileのfdを作成
 
     if (id_fd < 0) PFATAL("Unable to create '%s'", qd_synced_path);
 
     if (read(id_fd, &min_accept, sizeof(u32)) > 0) 
-      lseek(id_fd, 0, SEEK_SET);
+      lseek(id_fd, 0, SEEK_SET);//id_fdをfile先頭にセット
 
-    next_min_accept = min_accept;
+    next_min_accept = min_accept;//id_fdから読み取ったものを次のmin_acceptにセット
 
     /* Show stats */    
 
@@ -6683,21 +6683,21 @@ static void sync_fuzzers(char** argv) {
     /* For every file queued by this fuzzer, parse ID and see if we have looked at
        it before; exec a test case if not. */
 
-    while ((qd_ent = readdir(qd))) {
+    while ((qd_ent = readdir(qd))) {// syncディレクトリ内のディレクトリを読み取る
 
       u8* path;
       s32 fd;
       struct stat st;
-
+// dot filesまたは、sycing_caseにid:に続くnumberが取得できていない、または、syncing_caseがmin_acceptよりも小さければ
       if (qd_ent->d_name[0] == '.' ||
           sscanf(qd_ent->d_name, CASE_PREFIX "%06u", &syncing_case) != 1 || 
           syncing_case < min_accept) continue;
 
       /* OK, sounds like a new one. Let's give it a try. */
-
+// syncing_caseがnext_min_accept以上の場合次のsyncing_caseをnext_min_acceptに入れる
       if (syncing_case >= next_min_accept)
         next_min_accept = syncing_case + 1;
-
+// sync_dir/dir_name/queue/dir_name
       path = alloc_printf("%s/%s", qd_path, qd_ent->d_name);
 
       /* Allow this to fail in case the other fuzzer is resuming or so... */
@@ -6723,17 +6723,17 @@ static void sync_fuzzers(char** argv) {
         /* See what happens. We rely on save_if_interesting() to catch major
            errors and save the test case. */
 
-        write_to_testcase(mem, st.st_size);
+        write_to_testcase(mem, st.st_size);//.cur_inputに対してmemの書き込みを行う
 
-        fault = run_target(argv, exec_tmout);
+        fault = run_target(argv, exec_tmout);// target_pathの実行
 
         if (stop_soon) return;
 
-        syncing_party = sd_ent->d_name;
-        queued_imported += save_if_interesting(argv, mem, st.st_size, fault);
-        syncing_party = 0;
+        syncing_party = sd_ent->d_name;// sync_dirのqueueディレクトリにあるディレクトリをsyncing_partyにいれる
+        queued_imported += save_if_interesting(argv, mem, st.st_size, fault);//crashes_modeであれば1がreturnされる
+        syncing_party = 0;//初期化
 
-        munmap(mem, st.st_size);
+        munmap(mem, st.st_size);//mmapした領域を解放する
 
         if (!(stage_cur++ % stats_update_freq)) show_stats();
 
@@ -6743,7 +6743,7 @@ static void sync_fuzzers(char** argv) {
       close(fd);
 
     }
-
+//out_dirの.syncedの中にあるディレクトリに対してnext_min_aaceptの書き込みを行う
     ck_write(id_fd, &next_min_accept, sizeof(u32), qd_synced_path);
 
     close(id_fd);
@@ -7985,8 +7985,8 @@ int main(int argc, char** argv) {
 
   seek_to = find_start_position();// fuzzer_statsからcurrent queueの数を取得する
 
-  write_stats_file(0, 0, 0);
-  save_auto();
+  write_stats_file(0, 0, 0);//fuzzer_statsの更新
+  save_auto();// auto_extrasディレクトリへの書き込み
 
   if (stop_soon) goto stop_fuzzing;// stop soon flagが立っていればfuzzing終了
 
@@ -8012,9 +8012,9 @@ int main(int argc, char** argv) {
       queue_cur         = queue;// 現在のqueueを入れる
 
       while (seek_to) {// fuzzer_statsから取得したcurrent queue（すでにfuzzed）の数をスキップ
-        current_entry++;
-        seek_to--;
-        queue_cur = queue_cur->next;
+        current_entry++;//スキップした分だけIDを加算していく
+        seek_to--;//スキップした分だけ減算
+        queue_cur = queue_cur->next;//次のqueue
       }
 
       show_stats();// UIの表示
@@ -8027,42 +8027,42 @@ int main(int argc, char** argv) {
       /* If we had a full queue cycle with no new finds, try
          recombination strategies next. */
 
-      if (queued_paths == prev_queued) {
-
+      if (queued_paths == prev_queued) {// queueされていると前までqueueされていた数が同じであれば
+// use_sliceing flagを立ててもnew pathsが見つからなかった場合はcycles_wo_findsを加算
         if (use_splicing) cycles_wo_finds++; else use_splicing = 1;
 
-      } else cycles_wo_finds = 0;
+      } else cycles_wo_finds = 0;// 前までのqueueされている数と同じでなければcycles_wo_findsをクリア
 
-      prev_queued = queued_paths;
-
+      prev_queued = queued_paths;//現在のqueueされている数を前までの数にする
+// sync_id(-Sオプション)かつqueue_cycle(round flag)が1かつAFL_IMPORT_FIRSTであれば
       if (sync_id && queue_cycle == 1 && getenv("AFL_IMPORT_FIRST"))
-        sync_fuzzers(use_argv);
+        sync_fuzzers(use_argv);// sync_idようのfuzzersを起動させる
 
     }
 
-    skipped_fuzz = fuzz_one(use_argv);
+    skipped_fuzz = fuzz_one(use_argv);//fuzzingを開始(1600行くらい)
 
-    if (!stop_soon && sync_id && !skipped_fuzz) {
+    if (!stop_soon && sync_id && !skipped_fuzz) {//stop_soonではないかつsync_idかつskipped_fuzzでなければ
       
-      if (!(sync_interval_cnt++ % SYNC_INTERVAL))
+      if (!(sync_interval_cnt++ % SYNC_INTERVAL))// 5で割り切れるときはsync_fuzzersをする
         sync_fuzzers(use_argv);
 
     }
 
-    if (!stop_soon && exit_1) stop_soon = 2;
+    if (!stop_soon && exit_1) stop_soon = 2;// stop_soonが0かつonce flagが立っていれば
 
     if (stop_soon) break;
 
-    queue_cur = queue_cur->next;
-    current_entry++;
+    queue_cur = queue_cur->next;//現在のqueueの位置を次にする
+    current_entry++;// current queue entry IDの数を増やす
 
   }
 
-  if (queue_cur) show_stats();
+  if (queue_cur) show_stats();// queue_curがあればUI変更 
 
-  write_bitmap();
-  write_stats_file(0, 0, 0);
-  save_auto();
+  write_bitmap();// fuzz_bitmapの作成(-B optionのとき)
+  write_stats_file(0, 0, 0);//fuzzer_statsの更新
+  save_auto();// auto_extrasディレクトリへの書き込み
 
 stop_fuzzing:
 
