@@ -742,19 +742,19 @@ static void mark_as_variable(struct queue_entry* q) {
 /* Mark / unmark as redundant (edge-only). This is not used for restoring state,
    but may be useful for post-processing datasets. */
 
-static void mark_as_redundant(struct queue_entry* q, u8 state) {
+static void lmark_as_redundant(struct queue_entry* q, u8 state) {
 
   u8* fn;
   s32 fd;
 
-  if (state == q->fs_redundant) return;
+  if (state == q->fs_redundant) return;//すでにマークされているのであれば終了
 
-  q->fs_redundant = state;
+  q->fs_redundant = state;// マークをつける
 
   fn = strrchr(q->fname, '/');
   fn = alloc_printf("%s/queue/.state/redundant_edges/%s", out_dir, fn + 1);
 
-  if (state) {
+  if (state) {// stateがあればファイルの作成、なければremove
 
     fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
     if (fd < 0) PFATAL("Unable to create '%s'", fn);
@@ -1301,16 +1301,16 @@ static void cull_queue(void) {
 
   q = queue;
 
-  while (q) {
+  while (q) {// 次のqueueがなくなるまで、favored flagを0にしていく
     q->favored = 0;
     q = q->next;
   }
 
   /* Let's see if anything in the bitmap isn't captured in temp_v.
      If yes, and if it has a top_rated[] contender, let's use it. */
-
+// bitmapでtemp_vのなかにあるキャプチャーされていないbipmapにあるやつを見ていく
   for (i = 0; i < MAP_SIZE; i++)
-    if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
+    if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {//もしあればこれを使っていく
 
       u32 j = MAP_SIZE >> 3;
 
@@ -1318,19 +1318,19 @@ static void cull_queue(void) {
 
       while (j--) 
         if (top_rated[i]->trace_mini[j])
-          temp_v[j] &= ~top_rated[i]->trace_mini[j];
+          temp_v[j] &= ~top_rated[i]->trace_mini[j];// temp_vにある現在のエントリーの全てのbitsは取り除いていく
 
-      top_rated[i]->favored = 1;
-      queued_favored++;
+      top_rated[i]->favored = 1;// favored flagをたてる
+      queued_favored++;// favoredの数を増やす
 
-      if (!top_rated[i]->was_fuzzed) pending_favored++;
+      if (!top_rated[i]->was_fuzzed) pending_favored++;//fuzzingされていなければ待っているfavoredの数を増やす
 
     }
 
-  q = queue;
+  q = queue;//現在のqueueを入れる
 
   while (q) {
-    mark_as_redundant(q, !q->favored);
+    mark_as_redundant(q, !q->favored);// favored flagが立っていないものに対してマークをつけていく
     q = q->next;
   }
 
@@ -3309,7 +3309,7 @@ static u32 find_start_position(void) {
   s32 fd, i;
   u32 ret;
 
-  if (!resuming_fuzz) return 0;
+  if (!resuming_fuzz) return 0;// old queueがあればreturn
 
   if (in_place_resume) fn = alloc_printf("%s/fuzzer_stats", out_dir);//-i-のとき
   else fn = alloc_printf("%s/../fuzzer_stats", in_dir);
@@ -3325,8 +3325,8 @@ static u32 find_start_position(void) {
   off = strstr(tmp, "cur_path          : ");
   if (!off) return 0;
 
-  ret = atoi(off + 20);//cur_pathをskip
-  if (ret >= queued_paths) ret = 0;
+  ret = atoi(off + 20);//cur_pathの数を取得
+  if (ret >= queued_paths) ret = 0;//queuedされている数以上であれば0を返す
   return ret;
 
 }
@@ -7709,7 +7709,7 @@ int main(int argc, char** argv) {
   u32 sync_interval_cnt = 0, seek_to;
   u8  *extras_dir = 0;
   u8  mem_limit_given = 0;
-  u8  exit_1 = !!getenv("AFL_BENCH_JUST_ONE");
+  u8  exit_1 = !!getenv("AFL_BENCH_JUST_ONE");//一回だけ実行の場合
   char** use_argv;
 
   struct timeval tv;
@@ -7919,7 +7919,7 @@ int main(int argc, char** argv) {
   if (getenv("AFL_SHUFFLE_QUEUE")) shuffle_queue    = 1;
   if (getenv("AFL_FAST_CAL"))      fast_cal         = 1;
 
-  if (getenv("AFL_HANG_TMOUT")) {
+  if (getenv("AFL_HANG_TMOUT")) {//AFL_HANG_TMOUTがあればhang_tmoutに入れる
     hang_tmout = atoi(getenv("AFL_HANG_TMOUT"));
     if (!hang_tmout) FATAL("Invalid value of AFL_HANG_TMOUT");
   }
@@ -7977,13 +7977,13 @@ int main(int argc, char** argv) {
   else
     use_argv = argv + optind;
 
-  perform_dry_run(use_argv);
+  perform_dry_run(use_argv);// ユーザーが用意したtest caseを実際に走らせる
 
-  cull_queue();
+  cull_queue();//queueに対してfavored flagを立てていく。また、favored flagが立っていないものに対してnot used flagを立てる
 
-  show_init_stats();
+  show_init_stats();// UIの初期化(ユーザーtest caseの実行結果を反映)
 
-  seek_to = find_start_position();
+  seek_to = find_start_position();// fuzzer_statsからcurrent queueの数を取得する
 
   write_stats_file(0, 0, 0);
   save_auto();
@@ -8002,24 +8002,24 @@ int main(int argc, char** argv) {
 
     u8 skipped_fuzz;
 
-    cull_queue();
+    cull_queue();//queueに対してfavored flagを立てていく。また、favored flagが立っていないものに対してnot used flagを立てる
 
-    if (!queue_cur) {
+    if (!queue_cur) {// current queueがなければ
 
-      queue_cycle++;
-      current_entry     = 0;
-      cur_skipped_paths = 0;
-      queue_cur         = queue;
+      queue_cycle++;//round flagをたてる
+      current_entry     = 0;// current_entryの初期化
+      cur_skipped_paths = 0;// current cycleですてられたqueueの数の初期化
+      queue_cur         = queue;// 現在のqueueを入れる
 
-      while (seek_to) {
+      while (seek_to) {// fuzzer_statsから取得したcurrent queue（すでにfuzzed）の数をスキップ
         current_entry++;
         seek_to--;
         queue_cur = queue_cur->next;
       }
 
-      show_stats();
+      show_stats();// UIの表示
 
-      if (not_on_tty) {
+      if (not_on_tty) {// stdoutがttyでなければ
         ACTF("Entering queue cycle %llu.", queue_cycle);
         fflush(stdout);
       }
