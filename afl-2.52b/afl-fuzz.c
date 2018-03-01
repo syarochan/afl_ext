@@ -101,7 +101,7 @@ static u32 stats_update_freq = 1;     /* Stats update frequency (execs)   */
 EXP_ST u8  skip_deterministic,        /* Skip deterministic stages?       */
            force_deterministic,       /* Force deterministic stages?      */
            use_splicing,              /* Recombine input files?           */
-           dumb_mode,                 /* Run in non-instrumented mode?    */
+           dumb_mode,                 /* Run in non-instrumented mode?    *///アホの子モード(AFLをフルに使った複雑性のあるinstrument modeではないので)
            score_changed,             /* Scoring for favorites changed?   */
            kill_signal,               /* Signal that killed the child     */
            resuming_fuzz,             /* Resuming an older fuzzing job?   */
@@ -153,10 +153,10 @@ EXP_ST u32 queued_paths,              /* Total number of queued testcases */
            queued_at_start,           /* Total number of initial inputs   */
            queued_discovered,         /* Items discovered during this run */
            queued_imported,           /* Items imported via -S            */
-           queued_favored,            /* Paths deemed favorable           */
+           queued_favored,            /* Paths deemed favorable           *///面白いとみなされた時のpathの数
            queued_with_cov,           /* Paths with new coverage bytes    */
            pending_not_fuzzed,        /* Queued but not done yet          */
-           pending_favored,           /* Pending favored paths            */
+           pending_favored,           /* Pending favored paths            *///面白いやつを見つけたときの待ち数を増やす
            cur_skipped_paths,         /* Abandoned inputs in cur cycle    */
            cur_depth,                 /* Current path depth               */
            max_depth,                 /* Max path depth                   */
@@ -2497,7 +2497,7 @@ static void write_with_gap(void* mem, u32 len, u32 skip_at, u32 skip_len) {
   s32 fd = out_fd;
   u32 tail_len = len - skip_at - skip_len;
 
-  if (out_file) {
+  if (out_file) {//.cur_inputがある場合
 
     unlink(out_file); /* Ignore errors. */
 
@@ -2507,9 +2507,9 @@ static void write_with_gap(void* mem, u32 len, u32 skip_at, u32 skip_len) {
 
   } else lseek(fd, 0, SEEK_SET);
 
-  if (skip_at) ck_write(fd, mem, skip_at, out_file);
+  if (skip_at) ck_write(fd, mem, skip_at, out_file);//out_file(.cur_input)にmem(in_buf)の値を書き込む
 
-  if (tail_len) ck_write(fd, mem + skip_at + skip_len, tail_len, out_file);
+  if (tail_len) ck_write(fd, mem + skip_at + skip_len, tail_len, out_file);//trimして余ったやつをout_file(.cur_input)に書き込む
 
   if (!out_file) {
 
@@ -4449,7 +4449,7 @@ static void show_init_stats(void) {
 static u32 next_p2(u32 val) {
 
   u32 ret = 1;
-  while (val > ret) ret <<= 1;
+  while (val > ret) ret <<= 1;//例えばvalが17のときはretは32になる.15のときは16
   return ret;
 
 } 
@@ -4458,7 +4458,7 @@ static u32 next_p2(u32 val) {
 /* Trim all new test cases to save cycles when doing deterministic checks. The
    trimmer uses power-of-two increments somewhere between 1/16 and 1/1024 of
    file size, to keep the stage short and sweet. */
-
+//trimは16と1024でファイルサイズを割ってstage shortまで持っておく
 static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
 
   static u8 tmp[64];
@@ -4476,17 +4476,17 @@ static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
   if (q->len < 5) return 0;
 
   stage_name = tmp;
-  bytes_trim_in += q->len;
+  bytes_trim_in += q->len;// これからtirmされるqueueの長さをtrim intoに加算する
 
   /* Select initial chunk len, starting with large steps. */
 
-  len_p2 = next_p2(q->len);
+  len_p2 = next_p2(q->len);//lenを2のべき乗の形にしたものをlen_p2にいれる
 
-  remove_len = MAX(len_p2 / TRIM_START_STEPS, TRIM_MIN_BYTES);
+  remove_len = MAX(len_p2 / TRIM_START_STEPS, TRIM_MIN_BYTES);//16でわって、4と比べて大きい方が入る
 
   /* Continue until the number of steps gets too high or the stepover
      gets too small. */
-
+// まず最初に16で割った時のremove_lenがwhileの中を通過するあとは2ずつ割っていき最終的には1024で割ったところまで行く
   while (remove_len >= MAX(len_p2 / TRIM_END_STEPS, TRIM_MIN_BYTES)) {
 
     u32 remove_pos = remove_len;
@@ -4498,13 +4498,13 @@ static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
 
     while (remove_pos < q->len) {
 
-      u32 trim_avail = MIN(remove_len, q->len - remove_pos);
+      u32 trim_avail = MIN(remove_len, q->len - remove_pos);//trimされる長さを入れる
       u32 cksum;
-
+//remove_posを.cur_inputに書き込んで、tail_lenがあればremove_pos + trim_availを飛ばしてout_fileに書き込む
       write_with_gap(in_buf, q->len, remove_pos, trim_avail);
 
-      fault = run_target(argv, exec_tmout);
-      trim_execs++;
+      fault = run_target(argv, exec_tmout);//実行ファイルを走らせる
+      trim_execs++;//trimした回数を加算する
 
       if (stop_soon || fault == FAULT_ERROR) goto abort_trimming;
 
@@ -4519,17 +4519,17 @@ static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
 
       if (cksum == q->exec_cksum) {
 
-        u32 move_tail = q->len - remove_pos - trim_avail;
+        u32 move_tail = q->len - remove_pos - trim_avail;//つぎq->lenの一番うしろのながさ
 
-        q->len -= trim_avail;
+        q->len -= trim_avail;//trimした長さの減算
         len_p2  = next_p2(q->len);
 
         memmove(in_buf + remove_pos, in_buf + remove_pos + trim_avail, 
-                move_tail);
+                move_tail);//remove_posの一番後ろに残りの全てを移動する
 
         /* Let's save a clean trace, which will be needed by
            update_bitmap_score once we're done with the trimming stuff. */
-
+//trimしたときにupdate_bitmap_scoreを一回実行する必要があるため、clean traceを保存する
         if (!needs_write) {
 
           needs_write = 1;
@@ -4542,17 +4542,17 @@ static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
       /* Since this can be slow, update the screen every now and then. */
 
       if (!(trim_exec++ % stats_update_freq)) show_stats();
-      stage_cur++;
+      stage_cur++;//stageの加算
 
     }
 
-    remove_len >>= 1;
+    remove_len >>= 1;//2で割ってもう一回1024で割った時のwhileの条件と比べる
 
   }
 
   /* If we have made changes to in_buf, we also need to update the on-disk
      version of the test case. */
-
+// update_bitmap_scoreを変更する
   if (needs_write) {
 
     s32 fd;
@@ -4563,7 +4563,7 @@ static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
 
     if (fd < 0) PFATAL("Unable to create '%s'", q->fname);
 
-    ck_write(fd, in_buf, q->len, q->fname);
+    ck_write(fd, in_buf, q->len, q->fname);//q->fnameに最小限までにtrimされたin_bufの内容を書き込む
     close(fd);
 
     memcpy(trace_bits, clean_trace, MAP_SIZE);
@@ -4573,7 +4573,7 @@ static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
 
 abort_trimming:
 
-  bytes_trim_out += q->len;
+  bytes_trim_out += q->len;//trimし終わった長さの加算
   return fault;
 
 }
@@ -4678,7 +4678,7 @@ static u32 choose_block_len(u32 limit) {
 /* Calculate case desirability score to adjust the length of havoc fuzzing.
    A helper function for fuzz_one(). Maybe some of these constants should
    go into config.h. */
-
+// scoreが高いほど良いcase
 static u32 calculate_score(struct queue_entry* q) {
 
   u32 avg_exec_us = total_cal_us / total_cal_cycles;
@@ -4688,7 +4688,7 @@ static u32 calculate_score(struct queue_entry* q) {
   /* Adjust score based on execution speed of this path, compared to the
      global average. Multiplier ranges from 0.1x to 3x. Fast inputs are
      less expensive to fuzz, so we're giving them more air time. */
-
+//平均実行時間よりも少なければ少ないほど良いscoreになる
   if (q->exec_us * 0.1 > avg_exec_us) perf_score = 10;
   else if (q->exec_us * 0.25 > avg_exec_us) perf_score = 25;
   else if (q->exec_us * 0.5 > avg_exec_us) perf_score = 50;
@@ -4699,7 +4699,7 @@ static u32 calculate_score(struct queue_entry* q) {
 
   /* Adjust score based on bitmap size. The working theory is that better
      coverage translates to better targets. Multiplier from 0.25x to 3x. */
-
+//cover範囲が広ければ広いほど良いscoreになる
   if (q->bitmap_size * 0.3 > avg_bitmap_size) perf_score *= 3;
   else if (q->bitmap_size * 0.5 > avg_bitmap_size) perf_score *= 2;
   else if (q->bitmap_size * 0.75 > avg_bitmap_size) perf_score *= 1.5;
@@ -4710,7 +4710,7 @@ static u32 calculate_score(struct queue_entry* q) {
   /* Adjust score based on handicap. Handicap is proportional to how late
      in the game we learned about this path. Latecomers are allowed to run
      for a bit longer until they catch up with the rest. */
-
+//handicapは現在のpathを見つけるのにどのくらいかかったのかに比例している
   if (q->handicap >= 4) {
 
     perf_score *= 4;
@@ -4962,21 +4962,21 @@ static u8 fuzz_one(char** argv) {
     /* If we have any favored, non-fuzzed new arrivals in the queue,
        possibly skip to them at the expense of already-fuzzed or non-favored
        cases. */
-
+// already-fuzzed と non-favoredはskipする
     if ((queue_cur->was_fuzzed || !queue_cur->favored) &&
         UR(100) < SKIP_TO_NEW_PROB) return 1;
 
-  } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) {
+  } else if (!dumb_mode && !queue_cur->favored && queued_paths > 10) {//pending_favoredがないときこちらの条件を比べる
 
     /* Otherwise, still possibly skip non-favored cases, albeit less often.
        The odds of skipping stuff are higher for already-fuzzed inputs and
        lower for never-fuzzed entries. */
 
-    if (queue_cycle > 1 && !queue_cur->was_fuzzed) {
+    if (queue_cycle > 1 && !queue_cur->was_fuzzed) {//lower for never-fuzzed entries.
 
       if (UR(100) < SKIP_NFAV_NEW_PROB) return 1;
 
-    } else {
+    } else {//higher for already-fuzzed
 
       if (UR(100) < SKIP_NFAV_OLD_PROB) return 1;
 
@@ -4999,7 +4999,7 @@ static u8 fuzz_one(char** argv) {
   if (fd < 0) PFATAL("Unable to open '%s'", queue_cur->fname);
 
   len = queue_cur->len;
-
+//現在のqueue用のmmapをおこなう
   orig_in = in_buf = mmap(0, len, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
 
   if (orig_in == MAP_FAILED) PFATAL("Unable to mmap '%s'", queue_cur->fname);
@@ -5009,7 +5009,7 @@ static u8 fuzz_one(char** argv) {
   /* We could mmap() out_buf as MAP_PRIVATE, but we end up clobbering every
      single byte anyway, so it wouldn't give us any performance or memory usage
      benefits. */
-
+// mmapを使ってもいいが、単一のバイトを繰り返し入れていくので、パフォーマンスまたは効率的なメモリなどの恩恵はないため使っていない
   out_buf = ck_alloc_nozero(len);
 
   subseq_tmouts = 0;
@@ -5024,7 +5024,7 @@ static u8 fuzz_one(char** argv) {
 
     u8 res = FAULT_TMOUT;
 
-    if (queue_cur->cal_failed < CAL_CHANCES) {
+    if (queue_cur->cal_failed < CAL_CHANCES) {// 3より小さい場合のみcalibrate_case関数を実行
 
       res = calibrate_case(argv, queue_cur, in_buf, queue_cycle - 1, 0);
 
@@ -5034,7 +5034,7 @@ static u8 fuzz_one(char** argv) {
     }
 
     if (stop_soon || res != crash_mode) {
-      cur_skipped_paths++;
+      cur_skipped_paths++;// 現在のqueueをスキップしたのでスキップした数を増やす
       goto abandon_entry;
     }
 
@@ -5046,31 +5046,31 @@ static u8 fuzz_one(char** argv) {
 
   if (!dumb_mode && !queue_cur->trim_done) {
 
-    u8 res = trim_case(argv, queue_cur, in_buf);
+    u8 res = trim_case(argv, queue_cur, in_buf);// queueをtrimして実行させる
 
     if (res == FAULT_ERROR)
       FATAL("Unable to execute target application");
 
     if (stop_soon) {
-      cur_skipped_paths++;
+      cur_skipped_paths++;//放棄した数を増やす
       goto abandon_entry;
     }
 
     /* Don't retry trimming, even if it failed. */
-
+// 失敗していたとしてもtrim_done flagをたてる
     queue_cur->trim_done = 1;
 
-    if (len != queue_cur->len) len = queue_cur->len;
+    if (len != queue_cur->len) len = queue_cur->len;//trimmingしてqueueの長さが違っていたら変更する
 
   }
 
-  memcpy(out_buf, in_buf, len);
+  memcpy(out_buf, in_buf, len);//trimされているのであればdataの更新を行う(trimされていたら値は変わっていない)
 
   /*********************
    * PERFORMANCE SCORE *
    *********************/
 
-  orig_perf = perf_score = calculate_score(queue_cur);
+  orig_perf = perf_score = calculate_score(queue_cur);//queueのscoreをつける
 
   /* Skip right away if -d is given, if we have done deterministic fuzzing on
      this entry ourselves (was_fuzzed), or if it has gone through deterministic
@@ -5085,7 +5085,7 @@ static u8 fuzz_one(char** argv) {
   if (master_max && (queue_cur->exec_cksum % master_max) != master_id - 1)
     goto havoc_stage;
 
-  doing_det = 1;
+  doing_det = 1;//deterministic fuzzing flagを立てる
 
   /*********************************************
    * SIMPLE BITFLIP (+dictionary construction) *
@@ -5100,7 +5100,7 @@ static u8 fuzz_one(char** argv) {
   /* Single walking bit. */
 
   stage_short = "flip1";
-  stage_max   = len << 3;
+  stage_max   = len << 3;// len * 2^3した値をstage_maxにする
   stage_name  = "bitflip 1/1";
 
   stage_val_type = STAGE_VAL_NONE;
@@ -5115,7 +5115,7 @@ static u8 fuzz_one(char** argv) {
 
     FLIP_BIT(out_buf, stage_cur);
 
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;//実行してtime outとskip flagがあればgoto
 
     FLIP_BIT(out_buf, stage_cur);
 
@@ -5146,7 +5146,7 @@ static u8 fuzz_one(char** argv) {
 
       */
 
-    if (!dumb_mode && (stage_cur & 7) == 7) {
+    if (!dumb_mode && (stage_cur & 7) == 7) {//stage_curが7の倍数であれば
 
       u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
@@ -5159,9 +5159,9 @@ static u8 fuzz_one(char** argv) {
         a_len++;
 
         if (a_len >= MIN_AUTO_EXTRA && a_len <= MAX_AUTO_EXTRA)
-          maybe_add_auto(a_collect, a_len);
+          maybe_add_auto(a_collect, a_len);//out_bufの1byteを追加最後のステージなのでa_lenの初期化はない
 
-      } else if (cksum != prev_cksum) {
+      } else if (cksum != prev_cksum) {//前回とチェックサムが違った場合
 
         /* Otherwise, if the checksum has changed, see if we have something
            worthwhile queued up, and collect that if the answer is yes. */
@@ -5169,8 +5169,8 @@ static u8 fuzz_one(char** argv) {
         if (a_len >= MIN_AUTO_EXTRA && a_len <= MAX_AUTO_EXTRA)
           maybe_add_auto(a_collect, a_len);
 
-        a_len = 0;
-        prev_cksum = cksum;
+        a_len = 0;//addしたのでa_lenを初期化
+        prev_cksum = cksum;//チェックサムの更新
 
       }
 
@@ -5190,8 +5190,8 @@ static u8 fuzz_one(char** argv) {
 
   new_hit_cnt = queued_paths + unique_crashes;
 
-  stage_finds[STAGE_FLIP1]  += new_hit_cnt - orig_hit_cnt;
-  stage_cycles[STAGE_FLIP1] += stage_max;
+  stage_finds[STAGE_FLIP1]  += new_hit_cnt - orig_hit_cnt;//stage_flip1でみつけたpathとcrashesの数を加算
+  stage_cycles[STAGE_FLIP1] += stage_max;//stageを実行した回数を加算
 
   /* Two walking bits. */
 
@@ -5253,10 +5253,10 @@ static u8 fuzz_one(char** argv) {
 
   /* Effector map setup. These macros calculate:
 
-     EFF_APOS      - position of a particular file offset in the map.
-     EFF_ALEN      - length of a map with a particular number of bytes.
+     EFF_APOS      - position of a particular file offset in the map.(下位3bitは削る)
+     EFF_ALEN      - length of a map with a particular number of bytes.(_l + 下位3bit(0-7)のどれか)
      EFF_SPAN_ALEN - map span for a sequence of bytes.
-
+     EFF_REM       - 7でandをとる(7でまわるようにする)
    */
 
 #define EFF_APOS(_p)          ((_p) >> EFF_MAP_SCALE2)
