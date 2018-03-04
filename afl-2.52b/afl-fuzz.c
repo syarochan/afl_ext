@@ -4760,22 +4760,22 @@ static u8 could_be_bitflip(u32 xor_val) {
   if (!xor_val) return 1;
 
   /* Shift left until first bit set. */
-
+//1bitとANDをとって0だったらshを加算して、次のbit
   while (!(xor_val & 1)) { sh++; xor_val >>= 1; }
 
   /* 1-, 2-, and 4-bit patterns are OK anywhere. */
-
+//1,2,4bitはreturn 1
   if (xor_val == 1 || xor_val == 3 || xor_val == 15) return 1;
 
   /* 8-, 16-, and 32-bit patterns are OK only if shift factor is
      divisible by 8, since that's the stepover for these ops. */
 
-  if (sh & 7) return 0;
+  if (sh & 7) return 0;//shに下位7ビットの数字があったらこれより先に行っても意味がないのでreturn 0
 
   if (xor_val == 0xff || xor_val == 0xffff || xor_val == 0xffffffff)
     return 1;
 
-  return 0;
+  return 0;//どの値にも当てはまらなかったため
 
 }
 
@@ -4878,9 +4878,9 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
     for (j = 0; j < sizeof(interesting_8); j++) {
 
       u32 tval = (old_val & ~(0xff << (i * 8))) |
-                 (((u8)interesting_8[j]) << (i * 8));
+                 (((u8)interesting_8[j]) << (i * 8));//old_valの下位1byte目から加算していく
 
-      if (new_val == tval) return 1;
+      if (new_val == tval) return 1;//2byte以上の値が4byteの状態で完全にnew_valと一致したら終了
 
     }
 
@@ -4889,7 +4889,7 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
   /* Bail out unless we're also asked to examine two-byte LE insertions
      as a preparation for BE attempts. */
 
-  if (blen == 2 && !check_le) return 0;
+  if (blen == 2 && !check_le) return 0;//2byteかつcheck_le(little endian checkが0であればreturn)
 
   /* See if two-byte insertions over old_val could give us new_val. */
 
@@ -4898,7 +4898,7 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
     for (j = 0; j < sizeof(interesting_16) / 2; j++) {
 
       u32 tval = (old_val & ~(0xffff << (i * 8))) |
-                 (((u16)interesting_16[j]) << (i * 8));
+                 (((u16)interesting_16[j]) << (i * 8));//old_val下位2byteずつ比べていきnew_valと一致したらreturn
 
       if (new_val == tval) return 1;
 
@@ -5253,10 +5253,10 @@ static u8 fuzz_one(char** argv) {
 
   /* Effector map setup. These macros calculate:
 
-     EFF_APOS      - position of a particular file offset in the map.(下位3bitは削る)
-     EFF_ALEN      - length of a map with a particular number of bytes.(_l + 下位3bit(0-7)のどれか)
+     EFF_APOS      - position of a particular file offset in the map.下位3bitは削る（8で割って1byte単位の個数を出す)
+     EFF_ALEN      - length of a map with a particular number of bytes.(1byte単位の個数 + 0x03でANDをとった値)
      EFF_SPAN_ALEN - map span for a sequence of bytes.
-     EFF_REM       - 7でandをとる(7でまわるようにする)
+     EFF_REM       - 0x03とANDをとる
    */
 
 #define EFF_APOS(_p)          ((_p) >> EFF_MAP_SCALE2)
@@ -5266,7 +5266,7 @@ static u8 fuzz_one(char** argv) {
 
   /* Initialize effector map for the next step (see comments below). Always
      flag first and last byte as doing something. */
-
+//eff_mapの一番最初と一番最後は同じflagを立てる
   eff_map    = ck_alloc(EFF_ALEN(len));
   eff_map[0] = 1;
 
@@ -5287,7 +5287,7 @@ static u8 fuzz_one(char** argv) {
 
     stage_cur_byte = stage_cur;
 
-    out_buf[stage_cur] ^= 0xFF;
+    out_buf[stage_cur] ^= 0xFF;//1byte反転させる
 
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
 
@@ -5296,7 +5296,7 @@ static u8 fuzz_one(char** argv) {
        even when fully flipped - and we skip them during more expensive
        deterministic stages, such as arithmetics or known ints. */
 
-    if (!eff_map[EFF_APOS(stage_cur)]) {
+    if (!eff_map[EFF_APOS(stage_cur)]) {//現在のstageがeff_mapになかった場合
 
       u32 cksum;
 
@@ -5304,35 +5304,35 @@ static u8 fuzz_one(char** argv) {
          without wasting time on checksums. */
 
       if (!dumb_mode && len >= EFF_MIN_LEN)
-        cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+        cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);// 現在のqueueの長さが128byte以上であったら
       else
-        cksum = ~queue_cur->exec_cksum;
+        cksum = ~queue_cur->exec_cksum;//128byte以上ではない場合はチェックサムを反転させたものを生成
 
-      if (cksum != queue_cur->exec_cksum) {
+      if (cksum != queue_cur->exec_cksum) {//生成したチェックサムが違った場合、eff_mapに現在のstageのflagをつける
         eff_map[EFF_APOS(stage_cur)] = 1;
         eff_cnt++;
       }
 
     }
 
-    out_buf[stage_cur] ^= 0xFF;
+    out_buf[stage_cur] ^= 0xFF;//元に戻す
 
   }
 
   /* If the effector map is more than EFF_MAX_PERC dense, just flag the
      whole thing as worth fuzzing, since we wouldn't be saving much time
      anyway. */
-
+//密集している数が90％より上であれば
   if (eff_cnt != EFF_ALEN(len) &&
-      eff_cnt * 100 / EFF_ALEN(len) > EFF_MAX_PERC) {
+      eff_cnt * 100 / EFF_ALEN(len) > EFF_MAX_PERC) {//lenの1byte単位の個数とlen AND 0x03の値(lenが1byteから7byte用)を足した値をeff_cntと比べるかつ、
 
-    memset(eff_map, 1, EFF_ALEN(len));
+    memset(eff_map, 1, EFF_ALEN(len));//1byte単位にアラインメントしたものをeff_mapの先頭から埋めていく
 
-    blocks_eff_select += EFF_ALEN(len);
+    blocks_eff_select += EFF_ALEN(len);//埋めた数だけ加算する
 
   } else {
 
-    blocks_eff_select += eff_cnt;
+    blocks_eff_select += eff_cnt;//それ以外であれば現在のeff_cntを加算する
 
   }
 
@@ -5345,7 +5345,7 @@ static u8 fuzz_one(char** argv) {
 
   /* Two walking bytes. */
 
-  if (len < 2) goto skip_bitflip;
+  if (len < 2) goto skip_bitflip;//lenの長さが2byteより下であれば
 
   stage_name  = "bitflip 16/8";
   stage_short = "flip16";
@@ -5357,20 +5357,20 @@ static u8 fuzz_one(char** argv) {
   for (i = 0; i < len - 1; i++) {
 
     /* Let's consult the effector map... */
-
+//eff_mapが2byteとも0だった場合は価値がないので飛ばして次に行く
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
       stage_max--;
       continue;
     }
 
-    stage_cur_byte = i;
+    stage_cur_byte = i;//現在のstageをいれる
 
-    *(u16*)(out_buf + i) ^= 0xFFFF;
+    *(u16*)(out_buf + i) ^= 0xFFFF;//連続した2byteを反転させる
 
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
     stage_cur++;
 
-    *(u16*)(out_buf + i) ^= 0xFFFF;
+    *(u16*)(out_buf + i) ^= 0xFFFF;//元に戻す
 
 
   }
@@ -5429,7 +5429,7 @@ skip_bitflip:
   stage_name  = "arith 8/8";
   stage_short = "arith8";
   stage_cur   = 0;
-  stage_max   = 2 * len * ARITH_MAX;
+  stage_max   = 2 * len * ARITH_MAX;//INC/DECの2つを用意して、1から35まで順番に加算/減算していく
 
   stage_val_type = STAGE_VAL_LE;
 
@@ -5455,7 +5455,7 @@ skip_bitflip:
       /* Do arithmetic operations only if the result couldn't be a product
          of a bitflip. */
 
-      if (!could_be_bitflip(r)) {
+      if (!could_be_bitflip(r)) {//bitflipができなかったやつだけをする
 
         stage_cur_val = j;
         out_buf[i] = orig + j;
@@ -5467,7 +5467,7 @@ skip_bitflip:
 
       r =  orig ^ (orig - j);
 
-      if (!could_be_bitflip(r)) {
+      if (!could_be_bitflip(r)) {//bitflipができなかったやつだけをする
 
         stage_cur_val = -j;
         out_buf[i] = orig - j;
@@ -5477,7 +5477,7 @@ skip_bitflip:
 
       } else stage_max--;
 
-      out_buf[i] = orig;
+      out_buf[i] = orig;//元の値にする
 
     }
 
@@ -5495,7 +5495,7 @@ skip_bitflip:
   stage_name  = "arith 16/8";
   stage_short = "arith16";
   stage_cur   = 0;
-  stage_max   = 4 * (len - 1) * ARITH_MAX;
+  stage_max   = 4 * (len - 1) * ARITH_MAX;//4はINC/DECのlittle endianとBig endian用
 
   orig_hit_cnt = new_hit_cnt;
 
@@ -5513,7 +5513,7 @@ skip_bitflip:
     stage_cur_byte = i;
 
     for (j = 1; j <= ARITH_MAX; j++) {
-
+//SWAP16はlittle endian対策下位1byteと上位1byteを入れ替える(big endian用)
       u16 r1 = orig ^ (orig + j),
           r2 = orig ^ (orig - j),
           r3 = orig ^ SWAP16(SWAP16(orig) + j),
@@ -5526,7 +5526,7 @@ skip_bitflip:
 
       stage_val_type = STAGE_VAL_LE; 
 
-      if ((orig & 0xff) + j > 0xff && !could_be_bitflip(r1)) {
+      if ((orig & 0xff) + j > 0xff && !could_be_bitflip(r1)) {//orig(2byte)を0xff(下位1byteがlittle endianなので上位にくる)と比べてoverflowしていないかチェックをする
 
         stage_cur_val = j;
         *(u16*)(out_buf + i) = orig + j;
@@ -5536,7 +5536,7 @@ skip_bitflip:
  
       } else stage_max--;
 
-      if ((orig & 0xff) < j && !could_be_bitflip(r2)) {
+      if ((orig & 0xff) < j && !could_be_bitflip(r2)) {//underflowチェックを行う下位1byteがjよりも小さかったら
 
         stage_cur_val = -j;
         *(u16*)(out_buf + i) = orig - j;
@@ -5548,7 +5548,7 @@ skip_bitflip:
 
       /* Big endian comes next. Same deal. */
 
-      stage_val_type = STAGE_VAL_BE;
+      stage_val_type = STAGE_VAL_BE;//次はbig endianにして考える
 
 
       if ((orig >> 8) + j > 0xff && !could_be_bitflip(r3)) {
@@ -5709,7 +5709,7 @@ skip_arith:
       /* Skip if the value could be a product of bitflips or arithmetics. */
 
       if (could_be_bitflip(orig ^ (u8)interesting_8[j]) ||
-          could_be_arith(orig, (u8)interesting_8[j], 1)) {
+          could_be_arith(orig, (u8)interesting_8[j], 1)) {//できたらskip
         stage_max--;
         continue;
       }
@@ -5738,7 +5738,7 @@ skip_arith:
   stage_name  = "interest 16/8";
   stage_short = "int16";
   stage_cur   = 0;
-  stage_max   = 2 * (len - 1) * (sizeof(interesting_16) >> 1);
+  stage_max   = 2 * (len - 1) * (sizeof(interesting_16) >> 1);//little endian and big endian用
 
   orig_hit_cnt = new_hit_cnt;
 
@@ -5764,9 +5764,9 @@ skip_arith:
 
       if (!could_be_bitflip(orig ^ (u16)interesting_16[j]) &&
           !could_be_arith(orig, (u16)interesting_16[j], 2) &&
-          !could_be_interest(orig, (u16)interesting_16[j], 2, 0)) {
+          !could_be_interest(orig, (u16)interesting_16[j], 2, 0)) {//origが3つともにあてはまらないものだけ
 
-        stage_val_type = STAGE_VAL_LE;
+        stage_val_type = STAGE_VAL_LE;//現在のstageをlittle endianであることにする
 
         *(u16*)(out_buf + i) = interesting_16[j];
 
@@ -5774,7 +5774,7 @@ skip_arith:
         stage_cur++;
 
       } else stage_max--;
-
+// big endian用
       if ((u16)interesting_16[j] != SWAP16(interesting_16[j]) &&
           !could_be_bitflip(orig ^ SWAP16(interesting_16[j])) &&
           !could_be_arith(orig, SWAP16(interesting_16[j]), 2) &&
