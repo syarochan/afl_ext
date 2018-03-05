@@ -4921,7 +4921,7 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
 
     /* See if four-byte insertions could produce the same result
        (LE only). */
-
+// new_valと同じになるのはlittle endianのときにしかありえない
     for (j = 0; j < sizeof(interesting_32) / 4; j++)
       if (new_val == (u32)interesting_32[j]) return 1;
 
@@ -5254,8 +5254,8 @@ static u8 fuzz_one(char** argv) {
   /* Effector map setup. These macros calculate:
 
      EFF_APOS      - position of a particular file offset in the map.下位3bitは削る（8で割って1byte単位の個数を出す)
-     EFF_ALEN      - length of a map with a particular number of bytes.(1byte単位の個数 + 0x03でANDをとった値)
-     EFF_SPAN_ALEN - map span for a sequence of bytes.
+     EFF_ALEN      - length of a map with a particular number of bytes.(byte単位の個数 + 0x03でANDをとった値)
+     EFF_SPAN_ALEN - map span for a sequence of bytes. 1byte単位に長さを調整する
      EFF_REM       - 0x03とANDをとる
    */
 
@@ -5790,7 +5790,7 @@ skip_arith:
 
     }
 
-    *(u16*)(out_buf + i) = orig;
+    *(u16*)(out_buf + i) = orig;//元に戻す
 
   }
 
@@ -5818,7 +5818,7 @@ skip_arith:
 
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)] &&
         !eff_map[EFF_APOS(i + 2)] && !eff_map[EFF_APOS(i + 3)]) {
-      stage_max -= sizeof(interesting_32) >> 1;
+      stage_max -= sizeof(interesting_32) >> 1;//both endian引く
       continue;
     }
 
@@ -5904,7 +5904,8 @@ skip_interest:
          skip them if there's no room to insert the payload, if the token
          is redundant, or if its entire span has no bytes set in the effector
          map. */
-
+// extras_cntが200超えていたとしても、ランダム化させて、低かった場合は次の条件文に行く
+// out_butと同じ値、eff_mapにextrasの長さ分末尾から探した時にflagが一つでも立っていた時はスキップ
       if ((extras_cnt > MAX_DET_EXTRAS && UR(extras_cnt) >= MAX_DET_EXTRAS) ||
           extras[j].len > len - i ||
           !memcmp(extras[j].data, out_buf + i, extras[j].len) ||
@@ -5925,7 +5926,7 @@ skip_interest:
     }
 
     /* Restore all the clobbered memory. */
-    memcpy(out_buf + i, in_buf + i, last_len);
+    memcpy(out_buf + i, in_buf + i, last_len);//元に戻す
 
   }
 
@@ -5935,7 +5936,7 @@ skip_interest:
   stage_cycles[STAGE_EXTRAS_UO] += stage_max;
 
   /* Insertion of user-supplied extras. */
-
+//ユーザーが用意したfileのdata + out_bufを直接全て入れるやつ
   stage_name  = "user extras (insert)";
   stage_short = "ext_UI";
   stage_cur   = 0;
@@ -5951,16 +5952,16 @@ skip_interest:
 
     for (j = 0; j < extras_cnt; j++) {
 
-      if (len + extras[j].len > MAX_FILE) {
+      if (len + extras[j].len > MAX_FILE) {//1KBを超えていない時
         stage_max--; 
         continue;
       }
 
       /* Insert token */
-      memcpy(ex_tmp + i, extras[j].data, extras[j].len);
+      memcpy(ex_tmp + i, extras[j].data, extras[j].len);//先にextrasをコピー
 
       /* Copy tail */
-      memcpy(ex_tmp + i + extras[j].len, out_buf + i, len - i);
+      memcpy(ex_tmp + i + extras[j].len, out_buf + i, len - i);//out_bufを後ろにつける
 
       if (common_fuzz_stuff(argv, ex_tmp, len + extras[j].len)) {
         ck_free(ex_tmp);
@@ -5972,7 +5973,7 @@ skip_interest:
     }
 
     /* Copy head */
-    ex_tmp[i] = out_buf[i];
+    ex_tmp[i] = out_buf[i];//out_bufをex_tmpの先頭につける
 
   }
 
@@ -5986,7 +5987,7 @@ skip_interest:
 skip_user_extras:
 
   if (!a_extras_cnt) goto skip_extras;
-
+// 自動で生成した方
   stage_name  = "auto extras (over)";
   stage_short = "ext_AO";
   stage_cur   = 0;
