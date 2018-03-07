@@ -5100,7 +5100,7 @@ static u8 fuzz_one(char** argv) {
   /* Single walking bit. */
 
   stage_short = "flip1";
-  stage_max   = len << 3;// len * 2^3した値をstage_maxにする
+  stage_max   = len << 3;// len * 2^3した値(bit単位)をstage_maxにする
   stage_name  = "bitflip 1/1";
 
   stage_val_type = STAGE_VAL_NONE;
@@ -5197,7 +5197,7 @@ static u8 fuzz_one(char** argv) {
 
   stage_name  = "bitflip 2/1";
   stage_short = "flip2";
-  stage_max   = (len << 3) - 1;
+  stage_max   = (len << 3) - 1;//bit単位
 
   orig_hit_cnt = new_hit_cnt;
 
@@ -5224,7 +5224,7 @@ static u8 fuzz_one(char** argv) {
 
   stage_name  = "bitflip 4/1";
   stage_short = "flip4";
-  stage_max   = (len << 3) - 3;
+  stage_max   = (len << 3) - 3;//bit単位
 
   orig_hit_cnt = new_hit_cnt;
 
@@ -5253,9 +5253,9 @@ static u8 fuzz_one(char** argv) {
 
   /* Effector map setup. These macros calculate:
 
-     EFF_APOS      - position of a particular file offset in the map.下位3bitは削る（8で割って1byte単位の個数を出す)
-     EFF_ALEN      - length of a map with a particular number of bytes.(byte単位の個数 + 0x03でANDをとった値)
-     EFF_SPAN_ALEN - map span for a sequence of bytes. 1byte単位に長さを調整する
+     EFF_APOS      - position of a particular file offset in the map.下位3bitは削る（8で割って8byte単位の個数を出す)
+     EFF_ALEN      - length of a map with a particular number of bytes.(8byte単位の個数 + 0x03でANDをとった値)
+     EFF_SPAN_ALEN - map span for a sequence of bytes. 8byte単位に長さを調整する
      EFF_REM       - 0x03とANDをとる
    */
 
@@ -5324,9 +5324,9 @@ static u8 fuzz_one(char** argv) {
      anyway. */
 //密集している数が90％より上であれば
   if (eff_cnt != EFF_ALEN(len) &&
-      eff_cnt * 100 / EFF_ALEN(len) > EFF_MAX_PERC) {//lenの1byte単位の個数とlen AND 0x03の値(lenが1byteから7byte用)を足した値をeff_cntと比べるかつ、
+      eff_cnt * 100 / EFF_ALEN(len) > EFF_MAX_PERC) {//lenの8byte単位の個数とlen AND 0x03の値(lenが1byteから7byte用)を足した値をeff_cntと比べるかつ、
 
-    memset(eff_map, 1, EFF_ALEN(len));//1byte単位にアラインメントしたものをeff_mapの先頭から埋めていく
+    memset(eff_map, 1, EFF_ALEN(len));//8byte単位にアラインメントしたものをeff_mapの先頭から埋めていく
 
     blocks_eff_select += EFF_ALEN(len);//埋めた数だけ加算する
 
@@ -6041,7 +6041,7 @@ skip_extras:
      we're properly done with deterministic steps and can mark it as such
      in the .state/ directory. */
 
-  if (!queue_cur->passed_det) mark_as_det_done(queue_cur);
+  if (!queue_cur->passed_det) mark_as_det_done(queue_cur);//このflagが立っていなかった場合flagを立たせる
 
   /****************
    * RANDOM HAVOC *
@@ -6054,12 +6054,13 @@ havoc_stage:
   /* The havoc stage mutation code is also invoked when splicing files; if the
      splice_cycle variable is set, generate different descriptions and such. */
 
-  if (!splice_cycle) {
+  if (!splice_cycle) {//retry_splice(havocの次)の時にflagがたつ
 
     stage_name  = "havoc";
     stage_short = "havoc";
     stage_max   = (doing_det ? HAVOC_CYCLES_INIT : HAVOC_CYCLES) *
-                  perf_score / havoc_div / 100;
+                  perf_score / havoc_div / 100;//doin_detはパーフォーマンススコアをつけてその後の条件を突破したらつけられる。(基本初めてfuzzingされるもの)
+                                               //havoc_divは平均実行速度が遅ければ遅いほど値が大きい
 
   } else {
 
@@ -6074,7 +6075,7 @@ havoc_stage:
 
   }
 
-  if (stage_max < HAVOC_MIN) stage_max = HAVOC_MIN;
+  if (stage_max < HAVOC_MIN) stage_max = HAVOC_MIN;//16より小さい時は一番最小の16にサイズを調整する
 
   temp_len = len;
 
@@ -6087,43 +6088,43 @@ havoc_stage:
 
   for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
-    u32 use_stacking = 1 << (1 + UR(HAVOC_STACK_POW2));
+    u32 use_stacking = 1 << (1 + UR(HAVOC_STACK_POW2));//2から2^7(128)までのランダム値
 
     stage_cur_val = use_stacking;
  
     for (i = 0; i < use_stacking; i++) {
-
+// extras_cnt + a_extras_cntに応じてtrueなら2,falseなら0を選んで15を足して0から16の範囲でランダム化
       switch (UR(15 + ((extras_cnt + a_extras_cnt) ? 2 : 0))) {
 
         case 0:
 
           /* Flip a single bit somewhere. Spooky! */
 
-          FLIP_BIT(out_buf, UR(temp_len << 3));
+          FLIP_BIT(out_buf, UR(temp_len << 3));//1byte単位でのbit反転
           break;
 
         case 1: 
 
           /* Set byte to interesting value. */
 
-          out_buf[UR(temp_len)] = interesting_8[UR(sizeof(interesting_8))];
+          out_buf[UR(temp_len)] = interesting_8[UR(sizeof(interesting_8))];//1byte単位のinteresting valueをランダムに入れる
           break;
 
         case 2:
 
           /* Set word to interesting value, randomly choosing endian. */
 
-          if (temp_len < 2) break;
+          if (temp_len < 2) break;//lenが2byteよりも小さい場合は終了
 
-          if (UR(2)) {
+          if (UR(2)) {//1の場合 little endian
 
             *(u16*)(out_buf + UR(temp_len - 1)) =
-              interesting_16[UR(sizeof(interesting_16) >> 1)];
+              interesting_16[UR(sizeof(interesting_16) >> 1)];//2byteのinteresting valueをランダムに入れる
 
-          } else {
+          } else {//0の場合 big endian
 
             *(u16*)(out_buf + UR(temp_len - 1)) = SWAP16(
-              interesting_16[UR(sizeof(interesting_16) >> 1)]);
+              interesting_16[UR(sizeof(interesting_16) >> 1)]);//2byteのinteresting valueを入れ替えた値をランダムに入れる
 
           }
 
