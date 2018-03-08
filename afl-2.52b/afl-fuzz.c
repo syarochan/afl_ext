@@ -4640,7 +4640,7 @@ static u32 choose_block_len(u32 limit) {
   u32 min_value, max_value;
   u32 rlim = MIN(queue_cycle, 3);
 
-  if (!run_over10m) rlim = 1;
+  if (!run_over10m) rlim = 1;//実行時間が10分を超えていなかったら強制的に1にする(case 0になる)
 
   switch (UR(rlim)) {
 
@@ -6095,21 +6095,21 @@ havoc_stage:
     for (i = 0; i < use_stacking; i++) {
 // extras_cnt + a_extras_cntに応じてtrueなら2,falseなら0を選んで15を足して0から16の範囲でランダム化
       switch (UR(15 + ((extras_cnt + a_extras_cnt) ? 2 : 0))) {
-
+//byte単位でbit反転処理を行う
         case 0:
 
           /* Flip a single bit somewhere. Spooky! */
 
           FLIP_BIT(out_buf, UR(temp_len << 3));//1byte単位でのbit反転
           break;
-
+//ランダムに選択された4byteのintresting valueを挿入する戦略
         case 1: 
 
           /* Set byte to interesting value. */
 
           out_buf[UR(temp_len)] = interesting_8[UR(sizeof(interesting_8))];//1byte単位のinteresting valueをランダムに入れる
           break;
-
+//ランダムに選択された2byteのintresting valueをランダムに選択されたendianで挿入する戦略
         case 2:
 
           /* Set word to interesting value, randomly choosing endian. */
@@ -6129,7 +6129,7 @@ havoc_stage:
           }
 
           break;
-
+//ランダムに選択された4byteのintresting valueをランダムに選択されたendianで挿入する戦略
         case 3:
 
           /* Set dword to interesting value, randomly choosing endian. */
@@ -6149,21 +6149,21 @@ havoc_stage:
           }
 
           break;
-
+//ランダムで選ばれたARITH_MAXを1byteのout_bufに減算を行う戦略
         case 4:
 
           /* Randomly subtract from byte. */
 
           out_buf[UR(temp_len)] -= 1 + UR(ARITH_MAX);
           break;
-
+//ランダムで選ばれたARITH_MAXを1byteのout_bufに加算を行う戦略
         case 5:
 
           /* Randomly add to byte. */
 
           out_buf[UR(temp_len)] += 1 + UR(ARITH_MAX);
           break;
-
+//ランダムで選ばれたARITH_MAXを2byteのout_bufにランダムに選択されたendianで減算を行う戦略
         case 6:
 
           /* Randomly subtract from word, random endian. */
@@ -6187,7 +6187,7 @@ havoc_stage:
           }
 
           break;
-
+//ランダムで選ばれたARITH_MAXを2byteのout_bufにランダムに選択されたendianで加算を行う戦略
         case 7:
 
           /* Randomly add to word, random endian. */
@@ -6211,7 +6211,7 @@ havoc_stage:
           }
 
           break;
-
+//ランダムで選ばれたARITH_MAXを4byteのout_bufにランダムに選択されたendianで減算を行う戦略
         case 8:
 
           /* Randomly subtract from dword, random endian. */
@@ -6235,7 +6235,7 @@ havoc_stage:
           }
 
           break;
-
+//ランダムで選ばれたARITH_MAXを4byteのout_bufにランダムに選択されたendianで加算を行う戦略
         case 9:
 
           /* Randomly add to dword, random endian. */
@@ -6259,7 +6259,7 @@ havoc_stage:
           }
 
           break;
-
+//なんとなく1-255の値を使ってxor戦略
         case 10:
 
           /* Just set a random byte to a random value. Because,
@@ -6268,7 +6268,7 @@ havoc_stage:
 
           out_buf[UR(temp_len)] ^= 1 + UR(255);
           break;
-
+//out_bufのデータをdeleteする戦略
         case 11 ... 12: {
 
             /* Delete bytes. We're making this a bit more likely
@@ -6281,22 +6281,22 @@ havoc_stage:
 
             /* Don't delete too much. */
 
-            del_len = choose_block_len(temp_len - 1);
+            del_len = choose_block_len(temp_len - 1);//deleteできる長さを指定deleteする長さは最小サイズで決める
 
-            del_from = UR(temp_len - del_len + 1);
+            del_from = UR(temp_len - del_len + 1);//deketeする先頭をランダムに決める
 
             memmove(out_buf + del_from, out_buf + del_from + del_len,
-                    temp_len - del_from - del_len);
+                    temp_len - del_from - del_len);//del_fromからdel_lenの足した場所(deleteされる一番後ろの次)をdel_fromの場所に移動
 
-            temp_len -= del_len;
+            temp_len -= del_len;//deleteした長さの減算
 
             break;
 
           }
-
+//out_bufにコピーまたはoutbufにinsert戦略
         case 13:
 
-          if (temp_len + HAVOC_BLK_XL < MAX_FILE) {
+          if (temp_len + HAVOC_BLK_XL < MAX_FILE) {//1KBを超えていない時
 
             /* Clone bytes (75%) or insert a block of constant bytes (25%). */
 
@@ -6304,12 +6304,12 @@ havoc_stage:
             u32 clone_from, clone_to, clone_len;
             u8* new_buf;
 
-            if (actually_clone) {
+            if (actually_clone) {// 1,2,3のとき
 
-              clone_len  = choose_block_len(temp_len);
-              clone_from = UR(temp_len - clone_len + 1);
+              clone_len  = choose_block_len(temp_len);//cloneする長さの選定
+              clone_from = UR(temp_len - clone_len + 1);//cloneする先頭の選定
 
-            } else {
+            } else {//0のときblock単位でのinsert戦略に強制的になる
 
               clone_len = choose_block_len(HAVOC_BLK_XL);
               clone_from = 0;
@@ -6327,23 +6327,23 @@ havoc_stage:
             /* Inserted part */
 
             if (actually_clone)
-              memcpy(new_buf + clone_to, out_buf + clone_from, clone_len);
+              memcpy(new_buf + clone_to, out_buf + clone_from, clone_len);//コピー戦略
             else
               memset(new_buf + clone_to,
-                     UR(2) ? UR(256) : out_buf[UR(temp_len)], clone_len);
+                     UR(2) ? UR(256) : out_buf[UR(temp_len)], clone_len);//insert戦略
 
             /* Tail */
             memcpy(new_buf + clone_to + clone_len, out_buf + clone_to,
-                   temp_len - clone_to);
+                   temp_len - clone_to);//コピーまたはinsertした次の部分にout_bufのcloneの次の残りの値を入れる
 
             ck_free(out_buf);
-            out_buf = new_buf;
-            temp_len += clone_len;
+            out_buf = new_buf;//out_bufのポインタをnew_bufにする
+            temp_len += clone_len;//cloneした長さ分を加算
 
           }
 
           break;
-
+//out_buf書き換え戦略
         case 14: {
 
             /* Overwrite bytes with a randomly selected chunk (75%) or fixed
@@ -6358,13 +6358,13 @@ havoc_stage:
             copy_from = UR(temp_len - copy_len + 1);
             copy_to   = UR(temp_len - copy_len + 1);
 
-            if (UR(4)) {
+            if (UR(4)) {//75%の確率でout_bufの値を使って書き換える
 
               if (copy_from != copy_to)
                 memmove(out_buf + copy_to, out_buf + copy_from, copy_len);
 
             } else memset(out_buf + copy_to,
-                          UR(2) ? UR(256) : out_buf[UR(temp_len)], copy_len);
+                          UR(2) ? UR(256) : out_buf[UR(temp_len)], copy_len);//25%の確率でこちらになり、さらに50%の確率で0xffで書き換わる。
 
             break;
 
@@ -6372,12 +6372,12 @@ havoc_stage:
 
         /* Values 15 and 16 can be selected only if there are any extras
            present in the dictionaries. */
-
+//extrasを使ってoverwrite戦略
         case 15: {
 
             /* Overwrite bytes with an extra. */
 
-            if (!extras_cnt || (a_extras_cnt && UR(2))) {
+            if (!extras_cnt || (a_extras_cnt && UR(2))) {//extrasがないとき、または自動extrasが1とANDをとったとき
 
               /* No user-specified extras or odds in our favor. Let's use an
                  auto-detected one. */
@@ -6391,7 +6391,7 @@ havoc_stage:
               insert_at = UR(temp_len - extra_len + 1);
               memcpy(out_buf + insert_at, a_extras[use_extra].data, extra_len);
 
-            } else {
+            } else {//extrasがあった時、または自動extrasが0とANDをとったとき
 
               /* No auto extras or odds in our favor. Use the dictionary. */
 
@@ -6402,23 +6402,23 @@ havoc_stage:
               if (extra_len > temp_len) break;
 
               insert_at = UR(temp_len - extra_len + 1);
-              memcpy(out_buf + insert_at, extras[use_extra].data, extra_len);
+              memcpy(out_buf + insert_at, extras[use_extra].data, extra_len);//insert_atの部分から書き換え
 
             }
 
             break;
 
           }
-
+//extrasを使ってout_bufに追加する戦略
         case 16: {
 
-            u32 use_extra, extra_len, insert_at = UR(temp_len + 1);
+            u32 use_extra, extra_len, insert_at = UR(temp_len + 1);//out_ufのランダムな長さ
             u8* new_buf;
 
             /* Insert an extra. Do the same dice-rolling stuff as for the
                previous case. */
 
-            if (!extras_cnt || (a_extras_cnt && UR(2))) {
+            if (!extras_cnt || (a_extras_cnt && UR(2))) {//extrasがないとき、または自動extrasが1とANDをとったとき
 
               use_extra = UR(a_extras_cnt);
               extra_len = a_extras[use_extra].len;
@@ -6428,12 +6428,12 @@ havoc_stage:
               new_buf = ck_alloc_nozero(temp_len + extra_len);
 
               /* Head */
-              memcpy(new_buf, out_buf, insert_at);
+              memcpy(new_buf, out_buf, insert_at);//out_bufの先頭からinsert_atまでの長さをnew_bufにコピー
 
               /* Inserted part */
-              memcpy(new_buf + insert_at, a_extras[use_extra].data, extra_len);
+              memcpy(new_buf + insert_at, a_extras[use_extra].data, extra_len);//後ろにextrasを挿入
 
-            } else {
+            } else {//extrasがあった時、または自動extrasが0とANDをとったとき
 
               use_extra = UR(extras_cnt);
               extra_len = extras[use_extra].len;
@@ -6446,13 +6446,13 @@ havoc_stage:
               memcpy(new_buf, out_buf, insert_at);
 
               /* Inserted part */
-              memcpy(new_buf + insert_at, extras[use_extra].data, extra_len);
+              memcpy(new_buf + insert_at, extras[use_extra].data, extra_len);//後ろにextrasを挿入
 
             }
 
             /* Tail */
             memcpy(new_buf + insert_at + extra_len, out_buf + insert_at,
-                   temp_len - insert_at);
+                   temp_len - insert_at);//out_bufの残りをextrasの後ろにつける
 
             ck_free(out_buf);
             out_buf   = new_buf;
@@ -6474,19 +6474,19 @@ havoc_stage:
 
     if (temp_len < len) out_buf = ck_realloc(out_buf, len);
     temp_len = len;
-    memcpy(out_buf, in_buf, len);
+    memcpy(out_buf, in_buf, len);//out_bufを元に戻す
 
     /* If we're finding new stuff, let's run for a bit longer, limits
        permitting. */
 
-    if (queued_paths != havoc_queued) {
+    if (queued_paths != havoc_queued) {//hovoc_queued(初期値はqueued_pathsと同じ)の値と一致しなかった時
 
-      if (perf_score <= HAVOC_MAX_MULT * 100) {
-        stage_max  *= 2;
-        perf_score *= 2;
+      if (perf_score <= HAVOC_MAX_MULT * 100) {//HAVOCの最大スコアよりもperf_scoreが小さい場合
+        stage_max  *= 2;//stageを2倍にして長くする
+        perf_score *= 2;//スコアを2倍にする
       }
 
-      havoc_queued = queued_paths;
+      havoc_queued = queued_paths;//queued_pathsが増えているので数を更新する
 
     }
 
@@ -6514,7 +6514,9 @@ havoc_stage:
      code to mutate that blob. */
 
 retry_splicing:
-
+//use_spliceingは-M option(force_deterministic flagが立っていない時)以外の時に使われる
+//spliceingする最大回数は14回
+//queueと現在のqueueの長さが2byte以上でなければならない
   if (use_splicing && splice_cycle++ < SPLICE_CYCLES &&
       queued_paths > 1 && queue_cur->len > 1) {
 
