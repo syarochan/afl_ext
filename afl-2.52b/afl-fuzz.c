@@ -136,9 +136,9 @@ static s32 forksrv_pid,               /* PID of the fork server           */
 
 EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
 
-EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */// まだfuzzingされていない地域
-           virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */// time outの中で見たことないbit
-           virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */// crashesの中で見たことないbit
+EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */// まだfuzzingされていない範囲のbyte
+           virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */// time outの中で見たことないbyte
+           virgin_crash[MAP_SIZE];    /* Bits we haven't seen in crashes  */// crashesの中で見たことないbyte
 
 static u8  var_bytes[MAP_SIZE];       /* Bytes that appear to be variable */// 変数とみなされるバイト
 
@@ -6528,30 +6528,30 @@ retry_splicing:
     /* First of all, if we've modified in_buf for havoc, let's clean that
        up... */
 
-    if (in_buf != orig_in) {
+    if (in_buf != orig_in) {//addressが一致しなかった場合現在のin_bufを解放して元に戻す
       ck_free(in_buf);
       in_buf = orig_in;
       len = queue_cur->len;
     }
 
     /* Pick a random queue entry and seek to it. Don't splice with yourself. */
-
-    do { tid = UR(queued_paths); } while (tid == current_entry);
+//適当にqueueされているtest caseを引っ張ってくる。このとき、現在のtest caseと一致したらもう一回
+    do { tid = UR(queued_paths); } while (tid == current_entry);/
 
     splicing_with = tid;
     target = queue;
-
+//tidが100を超えていれば現在のqueueからnext_100をたどっていく。次にtidが0になるまでnextをたどっていく。そして目的のtidのqueueにたどり着く
     while (tid >= 100) { target = target->next_100; tid -= 100; }
     while (tid--) target = target->next;
 
     /* Make sure that the target has a reasonable length. */
-
+//targetの長さが2byteより下、または現在のqueueであった場合は次のtargetにしていく
     while (target && (target->len < 2 || target == queue_cur)) {
       target = target->next;
       splicing_with++;
     }
 
-    if (!target) goto retry_splicing;
+    if (!target) goto retry_splicing;//targetがなかった場合はもう一回最初から
 
     /* Read the testcase into a new buffer. */
 
