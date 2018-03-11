@@ -155,7 +155,7 @@ EXP_ST u32 queued_paths,              /* Total number of queued testcases */
            queued_imported,           /* Items imported via -S            */
            queued_favored,            /* Paths deemed favorable           *///面白いとみなされた時のpathの数
            queued_with_cov,           /* Paths with new coverage bytes    */
-           pending_not_fuzzed,        /* Queued but not done yet          */
+           pending_not_fuzzed,        /* Queued but not done yet          */// queueされているけどまだfuzzingされていない数
            pending_favored,           /* Pending favored paths            *///面白いやつを見つけたときの待ち数を増やす
            cur_skipped_paths,         /* Abandoned inputs in cur cycle    */
            cur_depth,                 /* Current path depth               */
@@ -1987,7 +1987,7 @@ EXP_ST void init_forkserver(char** argv) {
 
   if (forksrv_pid < 0) PFATAL("fork() failed");
 
-  if (!forksrv_pid) {//pidが0（子プロセス）の場合
+  if (!forksrv_pid) {//pidが0（fork_server）の場合
 
     struct rlimit r;
 
@@ -2051,7 +2051,7 @@ EXP_ST void init_forkserver(char** argv) {
     /* Set up control and status pipes, close the unneeded original fds. */
 
     if (dup2(ctl_pipe[0], FORKSRV_FD) < 0) PFATAL("dup2() failed");// FORKSRV_FDにcntrolのreadをコピー
-    if (dup2(st_pipe[1], FORKSRV_FD + 1) < 0) PFATAL("dup2() failed");// FORKSRV_FDにstatusのwriteをコピー
+    if (dup2(st_pipe[1], FORKSRV_FD + 1) < 0) PFATAL("dup2() failed");// FORKSRV_FD+1にstatusのwriteをコピー
 // コピー終わったあとに子プロセス側で必要ないものは全て閉じる
     close(ctl_pipe[0]);
     close(ctl_pipe[1]);
@@ -2099,8 +2099,8 @@ EXP_ST void init_forkserver(char** argv) {
   close(ctl_pipe[0]);// cntrolのread側を閉じる
   close(st_pipe[1]);// statusのwrite側を閉じる
 
-  fsrv_ctl_fd = ctl_pipe[1];
-  fsrv_st_fd  = st_pipe[0];
+  fsrv_ctl_fd = ctl_pipe[1];// cntrolのwrite側
+  fsrv_st_fd  = st_pipe[0];// statusのread側
 
   /* Wait for the fork server to come up, but don't wait too long. */
 // 子プロセスを待つ時間を設定
@@ -2109,7 +2109,7 @@ EXP_ST void init_forkserver(char** argv) {
 
   setitimer(ITIMER_REAL, &it, NULL);//時間を設定する(時間を超えたらSIGVTALRMが発生)
 
-  rlen = read(fsrv_st_fd, &statuls, 4);
+  rlen = read(fsrv_st_fd, &status, 4);//子プロセスの終了ステータスを読み取る
 
   it.it_value.tv_sec = 0;
   it.it_value.tv_usec = 0;
@@ -2351,8 +2351,8 @@ static u8 run_target(char** argv, u32 timeout) {
       /* Use a distinctive bitmap value to tell the parent about execv()
          falling through. */
 
-      *(u32*)trace_bits = EXEC_FAIL_SIG;
-      exit(0);
+      *(u32*)trace_bits = EXEC_FAIL_SIG;//execvを実行した時に落ちたのを知らせる
+      exit(0);//子プロセスの終了
 
     }
 
@@ -2362,14 +2362,14 @@ static u8 run_target(char** argv, u32 timeout) {
 
     /* In non-dumb mode, we have the fork server up and running, so simply
        tell it to have at it, and then read back PID. */
-// fork serverが親プロセスであるchildプロセスにprev_time_outの内容を書き込む
+// 親プロセスがfork_serverにprev_time_outの内容を書き込む
     if ((res = write(fsrv_ctl_fd, &prev_timed_out, 4)) != 4) {
 
       if (stop_soon) return 0;
       RPFATAL(res, "Unable to request new process from fork server (OOM?)");
 
     }
-// fork serverにchild_pidを送る
+// 親プロセスにchild_pidを送る
     if ((res = read(fsrv_st_fd, &child_pid, 4)) != 4) {
 
       if (stop_soon) return 0;
@@ -2379,7 +2379,7 @@ static u8 run_target(char** argv, u32 timeout) {
 
     if (child_pid <= 0) FATAL("Fork server is misbehaving (OOM?)");
 
-  }//親プロセスの時またはfork serverのとき
+  }
 
   /* Configure timeout, as requested by user, then wait for child to terminate. */
 
@@ -2394,10 +2394,10 @@ static u8 run_target(char** argv, u32 timeout) {
 
     if (waitpid(child_pid, &status, 0) <= 0) PFATAL("waitpid() failed");
 
-  } else {
+  } else {//forkserverのとき
 
     s32 res;
-// fork serverにstatusを送る
+// fork serverにchild_pidのstatusを送る
     if ((res = read(fsrv_st_fd, &status, 4)) != 4) {
 
       if (stop_soon) return 0;
@@ -2407,7 +2407,7 @@ static u8 run_target(char** argv, u32 timeout) {
 
   }
 
-  if (!WIFSTOPPED(status)) child_pid = 0;
+  if (!WIFSTOPPED(status)) child_pid = 0;//子プロセスがシグナルの配送により停止しなかった場合
 
   it.it_value.tv_sec = 0;
   it.it_value.tv_usec = 0;
@@ -6568,27 +6568,27 @@ retry_splicing:
     /* Find a suitable splicing location, somewhere between the first and
        the last differing byte. Bail out if the difference is just a single
        byte or so. */
-
+//in_bufとnew_bufの一番最初に違ったbyteと一番最後に違ったbyteを取得する
     locate_diffs(in_buf, new_buf, MIN(len, target->len), &f_diff, &l_diff);
 
-    if (f_diff < 0 || l_diff < 2 || f_diff == l_diff) {
+    if (f_diff < 0 || l_diff < 2 || f_diff == l_diff) {//splitできるよう長さでなければ
       ck_free(new_buf);
       goto retry_splicing;
     }
 
     /* Split somewhere between the first and last differing byte. */
 
-    split_at = f_diff + UR(l_diff - f_diff);
+    split_at = f_diff + UR(l_diff - f_diff);//splitの長さを決める
 
     /* Do the thing. */
 
     len = target->len;
-    memcpy(new_buf, in_buf, split_at);
+    memcpy(new_buf, in_buf, split_at);//new_bufにsplitした長さ分だけコピー
     in_buf = new_buf;
 
     ck_free(out_buf);
     out_buf = ck_alloc_nozero(len);
-    memcpy(out_buf, in_buf, len);
+    memcpy(out_buf, in_buf, len);//out_bufにtarget queueの長さの分だけout_bufにコピー
 
     goto havoc_stage;
 
@@ -6607,13 +6607,13 @@ abandon_entry:
 
   if (!stop_soon && !queue_cur->cal_failed && !queue_cur->was_fuzzed) {
     queue_cur->was_fuzzed = 1;
-    pending_not_fuzzed--;
-    if (queue_cur->favored) pending_favored--;
+    pending_not_fuzzed--;//fuzzingされたので数を減らす
+    if (queue_cur->favored) pending_favored--;//現在のqueueがfavoredだった場合待っているfavored queueの数を減らす
   }
 
-  munmap(orig_in, queue_cur->len);
+  munmap(orig_in, queue_cur->len);//orig_inからqueue_cur->lenの長さまでのページマッピングを取り除く(これ以降ここの範囲にアクセスするとメモリアクセス違反)
 
-  if (in_buf != orig_in) ck_free(in_buf);
+  if (in_buf != orig_in) ck_free(in_buf);//in_bufがorig_inのアドレスと違った場合のみin_bufをfreeする
   ck_free(out_buf);
   ck_free(eff_map);
 
@@ -8010,7 +8010,7 @@ int main(int argc, char** argv) {
 
     if (!queue_cur) {// current queueがなければ
 
-      queue_cycle++;//round flagをたてる
+      queue_cycle++;//round flag(queueされているものの周回数)
       current_entry     = 0;// current_entryの初期化
       cur_skipped_paths = 0;// current cycleですてられたqueueの数の初期化
       queue_cur         = queue;// 現在のqueueを入れる
@@ -8044,7 +8044,7 @@ int main(int argc, char** argv) {
 
     }
 
-    skipped_fuzz = fuzz_one(use_argv);//fuzzingを開始(1600行くらい)
+    skipped_fuzz = fuzz_one(use_argv);//fuzzingを開始様々な変異戦略がある
 
     if (!stop_soon && sync_id && !skipped_fuzz) {//stop_soonではないかつsync_idかつskipped_fuzzでなければ
       
