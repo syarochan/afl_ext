@@ -2277,7 +2277,7 @@ static u8 run_target(char** argv, u32 timeout) {
   /* If we're running in "dumb" mode, we can't rely on the fork server
      logic compiled into the target program, so we will just keep calling
      execve(). There is a bit of code duplication between here and 
-     init_forkserver(), but c'est la vie. */
+     init_forkserver(), but c'est la vie.(しょうがない) */
 
   if (dumb_mode == 1 || no_forkserver) {//dumb_modeであり、またはno_fork_serverではないとき
 
@@ -2362,14 +2362,14 @@ static u8 run_target(char** argv, u32 timeout) {
 
     /* In non-dumb mode, we have the fork server up and running, so simply
        tell it to have at it, and then read back PID. */
-// 親プロセスがfork_serverにprev_time_outの内容を書き込む
+// 親プロセスが子プロセスにprev_time_outの内容を書き込む
     if ((res = write(fsrv_ctl_fd, &prev_timed_out, 4)) != 4) {
 
       if (stop_soon) return 0;
       RPFATAL(res, "Unable to request new process from fork server (OOM?)");
 
     }
-// 親プロセスにchild_pidを送る
+// 親プロセスが子プロセスからステータスを受け取る
     if ((res = read(fsrv_st_fd, &child_pid, 4)) != 4) {
 
       if (stop_soon) return 0;
@@ -2389,7 +2389,7 @@ static u8 run_target(char** argv, u32 timeout) {
   setitimer(ITIMER_REAL, &it, NULL);
 
   /* The SIGALRM handler simply kills the child_pid and sets child_timed_out. */
-
+  // SIGALRMだった場合、sigactionで子プロセスを殺して、time outを1にセットする
   if (dumb_mode == 1 || no_forkserver) {
 
     if (waitpid(child_pid, &status, 0) <= 0) PFATAL("waitpid() failed");
@@ -2397,7 +2397,7 @@ static u8 run_target(char** argv, u32 timeout) {
   } else {//forkserverのとき
 
     s32 res;
-// fork serverにchild_pidのstatusを送る
+// 親プロセスにchild_pidのstatusを送る
     if ((res = read(fsrv_st_fd, &status, 4)) != 4) {
 
       if (stop_soon) return 0;
@@ -2422,10 +2422,10 @@ static u8 run_target(char** argv, u32 timeout) {
 
   MEM_BARRIER();//前後の読み書きを順番通りに実行させる(マルチスレッドでメモリ同期の対策)
 
-  tb4 = *(u32*)trace_bits;
+  tb4 = *(u32*)trace_bits;//子プロセスで実行されていれば(実行失敗のステータスが入っている)
 
 #ifdef __x86_64__
-  classify_counts((u64*)trace_bits);// trace_bitsを数字(hit count)に入れ替える
+  classify_counts((u64*)trace_bits);// trace_bitsを実行した回数(hit count)に入れ替える
 #else
   classify_counts((u32*)trace_bits);
 #endif /* ^__x86_64__ */
@@ -2570,7 +2570,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
     if (!first_run && !(stage_cur % stats_update_freq)) show_stats();//status screenの更新(読んでない)
 
-    write_to_testcase(use_mem, q->len);// out_fileにuse_memの内容を書き込む
+    write_to_testcase(use_mem, q->len);// out_file(.cur_input)にuse_memの内容を書き込む
 
     fault = run_target(argv, use_tmout);// execをforkさせて実行させた時のステータスを親プロセスで取得する
 
