@@ -1110,7 +1110,7 @@ static void simplify_trace(u32* mem) {
 /* Destructively classify execution counts in a trace. This is used as a
    preprocessing step for any newly acquired traces. Called on every exec,
    must be fast. */
-
+//traceの実行カウントを分類するために使われる。execのたびに呼び出され、新しいtraceが得られた前処理の段階で使われる
 static const u8 count_class_lookup8[256] = {
 
   [0]           = 0,
@@ -7959,12 +7959,12 @@ int main(int argc, char** argv) {
   init_count_class16(); // count_class_lookup8の拡張版
 
   setup_dirs_fds();// ディレクトリ、fileの作成、fileのディスクリプタの作成
-  read_testcases();// test_caseをin_dirから読み取る
-  load_auto();// extras ディレクトリの準備
+  read_testcases();// test_caseをin_dirから読み取り、in_dirの中にあるfileを読み取ってfileをqueueに加える
+  load_auto();// auto extrasの準備(tokenを自動ロードしてくれる部分)
 
   pivot_inputs();// output directoryにあるinput test case達のhard linkを作成する
 
-  if (extras_dir) load_extras(extras_dir);// extras_dirが存在していたらロード、size順にsortする。
+  if (extras_dir) load_extras(extras_dir);// -xオプションを使って、extras_dirが存在していたらロード、size順にsortする。(自分でtokenを準備していた場合にのみ実行される)
 
   if (!timeout_given) find_timeout();// time_outが設定されていなかったらこの関数を実行する
 
@@ -7981,7 +7981,7 @@ int main(int argc, char** argv) {
   else
     use_argv = argv + optind;
 
-  perform_dry_run(use_argv);// ユーザーが用意したtest caseを実際に走らせる
+  perform_dry_run(use_argv);// ユーザーが用意したtest case(queue)を実際に走らせる
 
   cull_queue();//queueに対してfavored flagを立てていく。また、favored flagが立っていないものに対してnot used flagを立てる
 
