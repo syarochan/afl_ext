@@ -2382,7 +2382,7 @@ static u8 run_target(char** argv, u32 timeout) {
   }
 
   /* Configure timeout, as requested by user, then wait for child to terminate. */
-
+//子プロセスが終了するのを待つ時間を設定
   it.it_value.tv_sec = (timeout / 1000);
   it.it_value.tv_usec = (timeout % 1000) * 1000;
 
