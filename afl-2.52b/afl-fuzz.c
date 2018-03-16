@@ -742,19 +742,19 @@ static void mark_as_variable(struct queue_entry* q) {
 /* Mark / unmark as redundant (edge-only). This is not used for restoring state,
    but may be useful for post-processing datasets. */
 
-static void lmark_as_redundant(struct queue_entry* q, u8 state) {
+static void mark_as_redundant(struct queue_entry* q, u8 state) {
 
   u8* fn;
   s32 fd;
 
-  if (state == q->fs_redundant) return;//すでにマークされているのであれば終了
+  if (state == q->fs_redundant) return;
 
-  q->fs_redundant = state;// マークをつける
+  q->fs_redundant = state;// 反転させたfvavored flagを入れる
 
   fn = strrchr(q->fname, '/');
   fn = alloc_printf("%s/queue/.state/redundant_edges/%s", out_dir, fn + 1);
 
-  if (state) {// stateがあればファイルの作成、なければremove
+  if (state) {
 
     fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
     if (fd < 0) PFATAL("Unable to create '%s'", fn);
@@ -874,7 +874,7 @@ EXP_ST void read_bitmap(u8* fname) {
 
    This function is called after every exec() on a fairly large buffer, so
    it needs to be fast. We do this in 32-bit and 64-bit flavors. */
-
+//returnが1であれば参照しているtupleのhit-countだけを更新,returnが2であれば新たなtupleをみつけたのでmapの更新をする
 static inline u8 has_new_bits(u8* virgin_map) {
 
 #ifdef __x86_64__
@@ -929,7 +929,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
       }
 
-      *virgin &= ~*current;//curentを反転させてandをとったものをvirginに入れる
+      *virgin &= ~*current;//curentを反転させてandをとったものをvirginに入れる(virgin bitのclear)
 
     }
 
@@ -982,7 +982,7 @@ static u32 count_bits(u8* mem) {
 /* Count the number of bytes set in the bitmap. Called fairly sporadically,
    mostly to update the status screen or calibrate and examine confirmed
    new paths. */
-
+//だいたいはステータス画面の更新、calibrate関数、確認されたnew pathsを調べる
 static u32 count_bytes(u8* mem) {
 
   u32* ptr = (u32*)mem;
@@ -1008,7 +1008,7 @@ static u32 count_bytes(u8* mem) {
 
 /* Count the number of non-255 bytes set in the bitmap. Used strictly for the
    status screen, several calls per second or so. */
-
+// それぞれのbyteの中で0xffではないものを調べる
 static u32 count_non_255_bytes(u8* mem) {
 
   u32* ptr = (u32*)mem;
@@ -1039,7 +1039,7 @@ static u32 count_non_255_bytes(u8* mem) {
    and replacing it with 0x80 or 0x01 depending on whether the tuple
    is hit or not. Called on every new crash or timeout, should be
    reasonably fast. */
-
+//hitしていれば0x80,まだhitしていないものであれば0x01
 static const u8 simplify_lookup[256] = { 
 
   [0]         = 1,
@@ -1214,7 +1214,7 @@ static void minimize_bits(u8* dst, u8* src) {
   u32 i = 0;
 
   while (i < MAP_SIZE) {
-//srcがあるとき、dstにいれる(0から3でまわるようになっている)
+//srcがあるとき、dstにいれる(8byteごと)
     if (*(src++)) dst[i >> 3] |= 1 << (i & 7);// 1から7でまわるようになっている
     i++;
 
@@ -1249,7 +1249,7 @@ static void update_bitmap_score(struct queue_entry* q) {
 
          /* Faster-executing or smaller test cases are favored. */
 
-         if (fav_factor > top_rated[i]->exec_us * top_rated[i]->len) continue;// 前の結果が良かったらスルー
+         if (fav_factor > top_rated[i]->exec_us * top_rated[i]->len) continue;
 
          /* Looks like we're going to win. Decrease ref count for the
             previous winner, discard its trace_bits[] if necessary. */
@@ -1268,7 +1268,7 @@ static void update_bitmap_score(struct queue_entry* q) {
 
        if (!q->trace_mini) {// trace_miniが0だった場合
          q->trace_mini = ck_alloc(MAP_SIZE >> 3);
-         minimize_bits(q->trace_mini, trace_bits);//小さなtrace_bytesをsmall bitmapに入れる
+         minimize_bits(q->trace_mini, trace_bits);//trace_bitsを使って現在のqueueのsmall bitmapを作成する
        }
 
        score_changed = 1;// score change flagを立てる
@@ -1308,9 +1308,9 @@ static void cull_queue(void) {
 
   /* Let's see if anything in the bitmap isn't captured in temp_v.
      If yes, and if it has a top_rated[] contender, let's use it. */
-// bitmapでtemp_vのなかにあるキャプチャーされていないbipmapにあるやつを見ていく
+// キャプチャーされていないtemp_vでtop_ratedを持っているやつがあればこれを使う
   for (i = 0; i < MAP_SIZE; i++)
-    if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {//もしあればこれを使っていく
+    if (top_rated[i] && (temp_v[i >> 3] & (1 << (i & 7)))) {
 
       u32 j = MAP_SIZE >> 3;
 
@@ -1330,7 +1330,7 @@ static void cull_queue(void) {
   q = queue;//現在のqueueを入れる
 
   while (q) {
-    mark_as_redundant(q, !q->favored);// favored flagが立っていないものに対してマークをつけていく
+    mark_as_redundant(q, !q->favored);// favored flagを反転させて0,q->fs_redundantが1、favored flagを反転させて1,q->fs_redundantが0であればマークをつけていく
     q = q->next;
   }
 
@@ -2351,7 +2351,7 @@ static u8 run_target(char** argv, u32 timeout) {
       /* Use a distinctive bitmap value to tell the parent about execv()
          falling through. */
 
-      *(u32*)trace_bits = EXEC_FAIL_SIG;//execvを実行した時に落ちたのを知らせる
+      *(u32*)trace_bits = EXEC_FAIL_SIG;//execvを実行した時に落ちたのを知らせるマクロ
       exit(0);//子プロセスの終了
 
     }
@@ -2369,7 +2369,7 @@ static u8 run_target(char** argv, u32 timeout) {
       RPFATAL(res, "Unable to request new process from fork server (OOM?)");
 
     }
-// 親プロセスが子プロセスからステータスを受け取る
+// 親プロセスが子プロセスからchild_pidを受け取る
     if ((res = read(fsrv_st_fd, &child_pid, 4)) != 4) {
 
       if (stop_soon) return 0;
@@ -2422,7 +2422,7 @@ static u8 run_target(char** argv, u32 timeout) {
 
   MEM_BARRIER();//前後の読み書きを順番通りに実行させる(マルチスレッドでメモリ同期の対策)
 
-  tb4 = *(u32*)trace_bits;//子プロセスで実行されていれば(実行失敗のステータスが入っている)
+  tb4 = *(u32*)trace_bits;
 
 #ifdef __x86_64__
   classify_counts((u64*)trace_bits);// trace_bitsを実行した回数(hit count)に入れ替える
@@ -2586,10 +2586,10 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
     cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);//trace_bitsを使ってhashを生成
 
-    if (q->exec_cksum != cksum) {//checksumが違った場合
+    if (q->exec_cksum != cksum) {//生成したcksumがqueueのcksumと違った場合
 
-      u8 hnb = has_new_bits(virgin_bits); 
-      if (hnb > new_bits) new_bits = hnb;
+      u8 hnb = has_new_bits(virgin_bits); //新たなもの(tuple)が見つかった可能性があるため確認する
+      if (hnb > new_bits) new_bits = hnb;//hnbの数が多かったらnew_bitの更新
 
       if (q->exec_cksum) {// checksumがあった場合
 
@@ -2597,7 +2597,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
         for (i = 0; i < MAP_SIZE; i++) {
 
-          if (!var_bytes[i] && first_trace[i] != trace_bits[i]) {// var_bytesが0でかつfirst traceとtracebitsが一致しなければ
+          if (!var_bytes[i] && first_trace[i] != trace_bits[i]) {// var_bytesが0でかつfirst traceとtrace bitsが一致しなければ
 
             var_bytes[i] = 1;// 変数があるflagを立てる
             stage_max    = CAL_CYCLES_LONG;// stageをのばす
@@ -2606,7 +2606,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
         }
 
-        var_detected = 1;//var_detected flagを立てる
+        var_detected = 1;//var_detected flagを立てる(新たな変数があることを知らせる)
 
       } else {//checksumがなかった場合
 
@@ -2656,8 +2656,8 @@ abort_calibration:
 
     var_byte_count = count_bytes(var_bytes);// var_bytesの数をカウント
 
-    if (!q->var_behavior) {// var_behavisorをもっていなければ
-      mark_as_variable(q);//variable_behaviorのmarkを行う
+    if (!q->var_behavior) {// var_behaviorをもっていなければ
+      mark_as_variable(q);//現在のqueueのmarkをvariable_behaviorファイルに行う
       queued_variable++;// queuedされているvariableの数を加算する
     }
 
@@ -2675,7 +2675,7 @@ abort_calibration:
 
 
 /* Examine map coverage. Called once, for first test case. */
-
+//traceする範囲がどこまでかをチェックする関数
 static void check_map_coverage(void) {
 
   u32 i;
@@ -2719,7 +2719,7 @@ static void perform_dry_run(char** argv) {
 
     close(fd);
 
-    res = calibrate_case(argv, q, use_mem, 0, 1);// faultステータスをきめる
+    res = calibrate_case(argv, q, use_mem, 0, 1);// 現在のqueueのfaultステータスをきめる
     ck_free(use_mem);
 
     if (stop_soon) return; 
@@ -3141,7 +3141,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
 
 #endif /* ^!SIMPLE_FILES */
 
-    add_to_queue(fn, len, 0);//syncから持ってきたqueueを加える
+    add_to_queue(fn, len, 0);
 
     if (hnb == 2) {//new tuplesを見つけた場合のみ
       queue_top->has_new_cov = 1;
@@ -3183,7 +3183,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
       if (!dumb_mode) {
 
 #ifdef __x86_64__
-        simplify_trace((u64*)trace_bits);//hitcountとreplacing(0x80か0x01でマークされている)を行う
+        simplify_trace((u64*)trace_bits);//not hitとhit(0x01か0x80でマークされている)を行う
 #else
         simplify_trace((u32*)trace_bits);
 #endif /* ^__x86_64__ */
@@ -4601,7 +4601,7 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
   if (stop_soon) return 1;
 
   if (fault == FAULT_TMOUT) {
-
+//time outしたqueueが連続で250個より多くならんでいたら現在のpathをスキップする
     if (subseq_tmouts++ > TMOUT_LIMIT) {
       cur_skipped_paths++;
       return 1;
@@ -4612,7 +4612,7 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
   /* Users can hit us with SIGUSR1 to request the current input
      to be abandoned. */
 
-  if (skip_requested) {
+  if (skip_requested) {//signalがあった場合
 
      skip_requested = 0;
      cur_skipped_paths++;
@@ -4974,11 +4974,11 @@ static u8 fuzz_one(char** argv) {
 
     if (queue_cycle > 1 && !queue_cur->was_fuzzed) {//lower for never-fuzzed entries.
 
-      if (UR(100) < SKIP_NFAV_NEW_PROB) return 1;
+      if (UR(100) < SKIP_NFAV_NEW_PROB) return 1;//75%の確率でreturn
 
     } else {//higher for already-fuzzed
 
-      if (UR(100) < SKIP_NFAV_OLD_PROB) return 1;
+      if (UR(100) < SKIP_NFAV_OLD_PROB) return 1;//95%の確率でreturn
 
     }
 
@@ -7983,7 +7983,7 @@ int main(int argc, char** argv) {
 
   perform_dry_run(use_argv);// ユーザーが用意したtest case(queue)を実際に走らせる
 
-  cull_queue();//queueに対してfavored flagを立てていく。また、favored flagが立っていないものに対してnot used flagを立てる
+  cull_queue();//queueに対してfavored flagを立てていく。
 
   show_init_stats();// UIの初期化(ユーザーtest caseの実行結果を反映)
 
@@ -8006,7 +8006,7 @@ int main(int argc, char** argv) {
 
     u8 skipped_fuzz;
 
-    cull_queue();//queueに対してfavored flagを立てていく。また、favored flagが立っていないものに対してnot used flagを立てる
+    cull_queue();//queueに対してfavored flagを立てていく。
 
     if (!queue_cur) {// current queueがなければ
 
