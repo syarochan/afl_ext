@@ -134,7 +134,7 @@ static s32 forksrv_pid,               /* PID of the fork server           */
            child_pid = -1,            /* PID of the fuzzed program        */
            out_dir_fd = -1;           /* FD of the lock file              */
 
-EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
+EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  *///8bit単位
 
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */// まだfuzzingされていない範囲のbyte
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */// time outの中で見たことないbyte
