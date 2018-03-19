@@ -3125,7 +3125,7 @@ static u8 save_if_interesting(char** argv, void* mem, u32 len, u8 fault) {
     /* Keep only if there are new bits in the map, add to queue for
        future fuzzing, etc. */
 
-    if (!(hnb = has_new_bits(virgin_bits))) {// new bitだけを残して将来のfuzzingなどに備える
+    if (!(hnb = has_new_bits(virgin_bits))) {// new bitがあるときだけここの条件文はスルー
       if (crash_mode) total_crashes++;// crash_modeがあればtotal_crashesの数を増やす
       return 0;
     }    
