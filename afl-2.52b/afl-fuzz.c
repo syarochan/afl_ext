@@ -134,7 +134,7 @@ static s32 forksrv_pid,               /* PID of the fork server           */
            child_pid = -1,            /* PID of the fuzzed program        */
            out_dir_fd = -1;           /* FD of the lock file              */
 
-EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  *///8bit単位
+EXP_ST u8* trace_bits;                /* SHM with instrumentation bitmap  */
 
 EXP_ST u8  virgin_bits[MAP_SIZE],     /* Regions yet untouched by fuzzing */// まだfuzzingされていない範囲のbyte
            virgin_tmout[MAP_SIZE],    /* Bits we haven't seen in tmouts   */// time outの中で見たことないbyte
@@ -2109,7 +2109,7 @@ EXP_ST void init_forkserver(char** argv) {
 
   setitimer(ITIMER_REAL, &it, NULL);//時間を設定する(時間を超えたらSIGVTALRMが発生)
 
-  rlen = read(fsrv_st_fd, &status, 4);//子プロセスの終了ステータスを読み取る
+  rlen = read(fsrv_st_fd, &status, 4);//子プロセスの終了(exit)ステータスを読み取る
 
   it.it_value.tv_sec = 0;
   it.it_value.tv_usec = 0;
@@ -2629,7 +2629,7 @@ static u8 calibrate_case(char** argv, struct queue_entry* q, u8* use_mem,
 
   q->exec_us     = (stop_us - start_us) / stage_max;//1つあたりの実行時間
   q->bitmap_size = count_bytes(trace_bits);// trace_bitsの数
-  q->handicap    = handicap;//残りのqueueの数
+  q->handicap    = handicap;//第三引数(queue cycles - 1 or 0) の数
   q->cal_failed  = 0;//caliburate関数が失敗したflagをクリアにする(成功したので)
 
   total_bitmap_size += q->bitmap_size;// qそれぞれのtrace bitsの数を更新
@@ -6536,7 +6536,7 @@ retry_splicing:
 
     /* Pick a random queue entry and seek to it. Don't splice with yourself. */
 //適当にqueueされているtest caseを引っ張ってくる。このとき、現在のtest caseと一致したらもう一回
-    do { tid = UR(queued_paths); } while (tid == current_entry);/
+    do { tid = UR(queued_paths); } while (tid == current_entry);
 
     splicing_with = tid;
     target = queue;
