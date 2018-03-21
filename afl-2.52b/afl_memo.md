@@ -1,18 +1,18 @@
 ### American Fuzzy Lopのソースコード解析
-ここ最近のAmerican Fuzzy Lopに対してオレオレ実装した過程でソースコードを解析したので、その結果をブログにまとめてみようということで書いてみました。ソースコードの解析しているようなブログなどはとくにみたことがない(2018/03/19時点)ので書く価値があるのかなという自己満足で書いてみました<br>
-<br>
+ここ最近のAmerican Fuzzy Lopに対してオレオレ実装した過程でソースコードを解析したので、その結果をブログにまとめてみようということで書いてみました。ソースコードの解析しているようなブログなどはとくにみたことがない(2018/03/19時点)ので書く価値があるのかなという自己満足で書いてみました
+
 ### American Fuzzy Lopとは
 American Fuzzy LopはGoogleのエンジニアである、Michal Zalewski氏らによるfuzzing toolである。fuzzingとはざっくりいうと「自動でバグ、脆弱性を見つけようぜ」というものである。<br>
-<br>
-有名なところで言うとCGC(Cyber Grand Challenge)でコンピュータ同士の攻防でfuzzingが使われていたりする。またここ最近の出来事としては2017年のプレスリリースされたMicrosoftの[Security Risk Detection](https://www.microsoft.com/en-us/security-risk-detection/)というものがある。これは[Neural fuzzing: applying DNN to software security testing](https://www.microsoft.com/en-us/research/blog/neural-fuzzing/)にかかれている通りfuzzingのアルゴリズムにDeep Neual Networkを適応させている。<br>
-<br>
-つまり、「自動でバグや脆弱性を見つけるサービスをはじめました」ということである。有名な企業がこういったことをやっているくらいホットな話題なので興味があるのであれば、ぜひこれをスタートアップとして、fuzzingに取り組んでほしい。<br>
-<br>
+
+有名なところで言うとCGC(Cyber Grand Challenge)でコンピュータ同士の攻防でfuzzingが使われていたりする。またここ最近の出来事としては2017年のプレスリリースされたMicrosoftの[Security Risk Detection](https://www.microsoft.com/en-us/security-risk-detection/)というものがある。これは[Neural fuzzing: applying DNN to software security testing](https://www.microsoft.com/en-us/research/blog/neural-fuzzing/)にかかれている通りfuzzingのアルゴリズムにDeep Neual Networkを適応させている。
+
+つまり、「自動でバグや脆弱性を見つけるサービスをはじめました」ということである。有名な企業がこういったことをやっているくらいホットな話題なので興味があるのであれば、ぜひこれをスタートアップとして、fuzzingに取り組んでほしい。
+
 ### American Fuzzy Lopのアルゴリズムについて
 Amrican Fuzzy Lopのアルゴリズムは遺伝的アルゴリズムである。もっと簡単に言うと「testするものが実行速度が速くて、カバー範囲(様々な条件分岐に対応している)が広くて、より深く(条件分岐の先の先)までtestすることができるのが良いcase」という考えのもとで実装がされている。<br>
-<br>
+
 American Fuzzy Lopとしては「とにかく速く、正確に、より多くの不要な部分（不要なライブラリでCPUを多く使うなど）を除き、シンプルなソースコードである」というのをコンセプトとしている。
-<br>
+
 ### American Fuzzy Lopの変異戦略について
 変異戦略とは、ユーザーが用意した初期値を様々な方法で変化させていく方法である。大きく分けて以下の6つある。<br>
 - SIMPLE BITFLIP(xor戦略)<br>
@@ -21,16 +21,16 @@ American Fuzzy Lopとしては「とにかく速く、正確に、より多く�
 - DICTIONARY STUFF(辞書型のdataを挿入する戦略)<br>
 - RANDOM HAVOC(ランダムに用意された戦略を選ぶ戦略)<br>
 - SPLICING(dataをspliteする戦略)<br>
-<br>
-今回はこの6つのすべてをソースコード(afl-fuzz.cのfuzz_one関数)を用いながら詳しく説明していく。<br>
-<br>
+
+今回はこの6つのすべてをソースコード(afl-fuzz.cのfuzz_one関数)を用いながら詳しく、よりシンプルに説明をしていく。<br>
+
 ### 戦略に入る前処理(不要なdataのskip)
 実際に戦略に入る前に最小限のfuzzingをするために不必要な部分のdata(queue)を取り除いていく。取り除かれるdataは以下の3つになる。<br>
 - 戦略処理を待っているエラーを見つけるようなdata(pending_favored)があれば、そのdataがすでにfuzzingされているdata(already-fuzzed)または、エラーを起こすような変化がないdata(non-favored)であった場合は99％の確率で戦略を起こさずにreturnする。<br>
 - penging_favoredがない場合は、fuzzingを実行するときのoptionでdumb_mode（ユーザーの初期値のみでfuzzingを行うmode,私の中ではアホの子modeとよんでいる）ではない、現在のdataがエラーを見つけるようなdata(favored queue)ではない、戦略処理を待っているqueueの数(queue_paths)が10個よりも少ない。という3つの条件が揃った時に以下の2つの条件にいく<br>
     - queue_pathsされているものを1周した時に加算される数(queue cycle)が1周より上、すでにfuzzingされているqueueの2つの条件があっていれば75％の確率で戦略を起こさずにreturnする。<br>
     - それ以外の条件であれば95%の確率で戦略を起こさずにreturnする。<br>
-<br>
+
 以下はそのソースコードに当たる部分である。<br>
 ```c
 #ifdef IGNORE_FINDS
@@ -71,19 +71,20 @@ American Fuzzy Lopとしては「とにかく速く、正確に、より多く�
 
 #endif /* ^IGNORE_FINDS */
 ```
-<br>
+
 ### 戦略に入る前処理(CALIBRATIONを失敗しているdataであるとき)
 - CALIBRATIONとは、実際にdata(queue)を使って実行ファイルを走らせ、そのqueueのカバー範囲、実行速度、どのようなエラーになるかなどを記録する関数である。<br>
-- fuzz_one関数に入る前の段階でcalibration関数は実行されており、失敗するようなflagが立つのは関数が実行され始めてすぐの部分である。<br>
+- これからcalibrate_case関数の説明をしていく。<br>
+- fuzz_one関数に入る前の段階でcalibration関数は実行されており、失敗するようなflag(cal_failed)が立つのは関数が実行され始めてすぐの部分である。<br>
 - デフォルトの状態(dumb_modeではない状態)であればinit_forkserverを使って子プロセスを生成する。<br>
 - write_to_testcaseで.cur_input fileにdataの内容を書き込む。<br>
-- 書き込んだあと、run_target関数で子プロセスの方で実行ファイルをexecvをで実行して、その実行結果を親プロセスに返す。<br>
+- 書き込んだあと、run_target関数で子プロセスの方で実行ファイルをexecvで実行して、その実行結果を親プロセスに返す。<br>
 - stageは全部で8回(fast calibrationのflagが立っていない時)行われる。つまり、run_targetは全部で8回行われる。<br>
 - run_targetが終わるたびにカバー範囲(trace_bits)を使ってhashを生成する。<br>
 - hashは一番最初にrun_targetを実行した時のhashを現在のqueueに保存したあとに、最初のカバー範囲をfirst_traceに入れて後のstageと比べる<br>
 - 2回目以降に生成したhashが一番最初のhashと違っていた場合、新しいinputの組み合わせ(new tuple)で、新たなカバー範囲を見つけたので全体のカバー範囲(virgin_bits)の更新を行う<br>
 - first traceとtrace bitsを比べていき、一致しなかったらその部分に変化があった場所(var_bytes)としてflagを立てる。<br>
-- update_bitmap_scoreで現在のqueueが現時点で最も優れているqueue(top_rated)と比べて実行時間とdataの長さを掛けた数よりも小さかったらtop_ratedと入れ替える。<br>
+- update_bitmap_score関数で現在のqueueが現時点で最も優れているqueue(top_rated)と比べて実行時間とdataの長さを掛けた数よりも小さかったらtop_ratedと入れ替える。<br>
 - もしなかった場合はtop_ratedに現在のqueueを入れる。<br>
 - queueに変化があった場所(var_bytes)があったというflagを立てる。<br>
 以下に戦略に入る前処理(CALIBRATIONを失敗しているdataであるとき)を載せておく。cliburation関数の方は公開したコメント付きソースコードでみてほしい。<br>
@@ -145,7 +146,15 @@ American Fuzzy Lopとしては「とにかく速く、正確に、より多く�
   memcpy(out_buf, in_buf, len);//trimされているのであればdataの更新を行う(trimされていなかったら値は変わっていない)
 ```
 ### 戦略に入る前処理(dataの点数付け)
-
+- preformance scoreはqueueの点数付けを行う部分である。calculate_score関数で点数をつける。これからcalculate_score関数の説明をしていく。<br>
+- scoreが良くなる条件は4つある。<br>
+- 1つ目は平均実行時間よりも少なければ少ないほど良いscoreになる。<br>
+- 2つ目はcover範囲が広ければ広いほど良いscoreになる。<br>
+- 3つ目はqueue cycleの回数が高ければ高いほど良いscoreにする。これはqueueが多く実行されればされるほど変異を様々なtupleで行われエラーを見つけやすくなるためである。<br>
+- 4つ目はより深く条件分の先の先(depth)までいくqueueは良いscoreになる。<br>
+- calculate_scoreが終わって、変異戦略をskipする(正確にはRANDOM HAVOCまでgoto)条件として -d optionがある、すでにfuzzingされているもの(was_fuzzed)、過去にfuzzingした(resume)favored pathとしてqueue(passd_det)が残っている。(American Fuzzy Lopはoutputディレクトリに過去に中断したdata(queue)を記録しているため、それを使って再び途中から実行させることができる機能を持っている。このdataをresume queueという。20分以上実行した形跡があるのであればfuzzingを最初から実行させようとすると初期化の段階で警告文が出て実行が中断される)の3つの条件のうちどれかに当てはまるとskipする。<br>
+- skipしなかった場合はこれから全部の戦略を実行しますflag(doing_det)を立てる。
+以下はそのソースコードに当たる部分である。calculate_score関数は公開したコメント付きソースコードを見てほしい<br>
 ```c
   /*********************
    * PERFORMANCE SCORE *
@@ -169,6 +178,99 @@ American Fuzzy Lopとしては「とにかく速く、正確に、より多く�
   doing_det = 1;//deterministic fuzzing flagを立てる
 ```
 ### SIMPLE BITFLIP(xor戦略)<br>
+- SIMPLE BITFLIPでは3つの段階にわけられてqueueを変異させていく。<br>
+- 最初の段階では1byteを1つの部分に対して、0x80でstage数に合わせて何bitか右にシフトさせてxorをしていく。<br>
+- 2段階目では1byteを2つの部分に対して、0x80でstage数に合わせて何bitか右にシフトさせてxorをしていく。<br>
+- 3段階では1byteを4つの部分に対して、0x80でstage数に合わせて何bitか右にシフトさせてxorをしていく。<br>
+- stageごとに、common_fuzz_stuff関数が実行されてrun_target関数が実行される。run_targetの戻り値として返ってきた実行結果(fault)をsave_if_interesting関数を使って振り分ける。これからsave_if_interesting関数の説明をする。<br>
+- save_if_interesting関数を開始してすぐに-C option(crash_mode)の場合の処理に入る。今回はデフォルトの処理の説明をこれからしていく。
+- 
+- stageとき、それぞれの段階で自動辞書型(auto dictionary)の生成を行う<br>
+- auto dictionaryはstage数が7の倍数の時に条件文を突破して生成処理に入る。<br>
+  - 現在のtrace_bits
+```c
+  /*********************************************
+   * SIMPLE BITFLIP (+dictionary construction) *
+   *********************************************/
+
+#define FLIP_BIT(_ar, _b) do { \
+    u8* _arf = (u8*)(_ar); \
+    u32 _bf = (_b); \
+    _arf[(_bf) >> 3] ^= (128 >> ((_bf) & 7)); \
+  } while (0)
+
+  /* Single walking bit. */
+
+  stage_short = "flip1";
+  stage_max   = len << 3;// len * 2^3した値(bit単位)をstage_maxにする
+  stage_name  = "bitflip 1/1";
+
+  stage_val_type = STAGE_VAL_NONE;
+
+  orig_hit_cnt = queued_paths + unique_crashes;
+
+  prev_cksum = queue_cur->exec_cksum;
+
+  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
+
+    stage_cur_byte = stage_cur >> 3;
+
+    FLIP_BIT(out_buf, stage_cur);
+
+    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;//実行してtime outとskip flagがあればgoto
+
+    FLIP_BIT(out_buf, stage_cur);
+       .
+       .
+       .
+
+    if (!dumb_mode && (stage_cur & 7) == 7) {//stage_curが7の倍数であれば
+
+      u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
+
+      if (stage_cur == stage_max - 1 && cksum == prev_cksum) {
+
+        /* If at end of file and we are still collecting a string, grab the
+           final character and force output. */
+
+        if (a_len < MAX_AUTO_EXTRA) a_collect[a_len] = out_buf[stage_cur >> 3];
+        a_len++;
+
+        if (a_len >= MIN_AUTO_EXTRA && a_len <= MAX_AUTO_EXTRA)
+          maybe_add_auto(a_collect, a_len);//out_bufの1byteを追加最後のステージなのでa_lenの初期化はない
+
+      } else if (cksum != prev_cksum) {//前回とチェックサムが違った場合
+
+        /* Otherwise, if the checksum has changed, see if we have something
+           worthwhile queued up, and collect that if the answer is yes. */
+
+        if (a_len >= MIN_AUTO_EXTRA && a_len <= MAX_AUTO_EXTRA)
+          maybe_add_auto(a_collect, a_len);
+
+        a_len = 0;//addしたのでa_lenを初期化
+        prev_cksum = cksum;//チェックサムの更新
+
+      }
+
+      /* Continue collecting string, but only if the bit flip actually made
+         any difference - we don't want no-op tokens. */
+
+      if (cksum != queue_cur->exec_cksum) {
+
+        if (a_len < MAX_AUTO_EXTRA) a_collect[a_len] = out_buf[stage_cur >> 3];        
+        a_len++;
+
+      }
+
+    }
+
+  }
+
+  new_hit_cnt = queued_paths + unique_crashes;
+
+  stage_finds[STAGE_FLIP1]  += new_hit_cnt - orig_hit_cnt;//stage_flip1でみつけたpathとcrashesの数を加算
+  stage_cycles[STAGE_FLIP1] += stage_max;//stageを実行した回数を加算
+```
 ### ARITHMETIC INC/DEC(数字加算/数字減算戦略)<br>
 ### INTERESTING VALUES(固定値を挿入する戦略)<br>
 ### DICTIONARY STUFF(辞書型のdataを挿入する戦略)<br>
