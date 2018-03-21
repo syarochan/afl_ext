@@ -73,10 +73,101 @@ American Fuzzy Lopとしては「とにかく速く、正確に、より多く�
 ```
 <br>
 ### 戦略に入る前処理(CALIBRATIONを失敗しているdataであるとき)
-- CALIBRATIONとは、
-### 戦略に入る前処理(dataの最小限までのtriming)
+- CALIBRATIONとは、実際にdata(queue)を使って実行ファイルを走らせ、そのqueueのカバー範囲、実行速度、どのようなエラーになるかなどを記録する関数である。<br>
+- fuzz_one関数に入る前の段階でcalibration関数は実行されており、失敗するようなflagが立つのは関数が実行され始めてすぐの部分である。<br>
+- デフォルトの状態(dumb_modeではない状態)であればinit_forkserverを使って子プロセスを生成する。<br>
+- write_to_testcaseで.cur_input fileにdataの内容を書き込む。<br>
+- 書き込んだあと、run_target関数で子プロセスの方で実行ファイルをexecvをで実行して、その実行結果を親プロセスに返す。<br>
+- stageは全部で8回(fast calibrationのflagが立っていない時)行われる。つまり、run_targetは全部で8回行われる。<br>
+- run_targetが終わるたびにカバー範囲(trace_bits)を使ってhashを生成する。<br>
+- hashは一番最初にrun_targetを実行した時のhashを現在のqueueに保存したあとに、最初のカバー範囲をfirst_traceに入れて後のstageと比べる<br>
+- 2回目以降に生成したhashが一番最初のhashと違っていた場合、新しいinputの組み合わせ(new tuple)で、新たなカバー範囲を見つけたので全体のカバー範囲(virgin_bits)の更新を行う<br>
+- first traceとtrace bitsを比べていき、一致しなかったらその部分に変化があった場所(var_bytes)としてflagを立てる。<br>
+- update_bitmap_scoreで現在のqueueが現時点で最も優れているqueue(top_rated)と比べて実行時間とdataの長さを掛けた数よりも小さかったらtop_ratedと入れ替える。<br>
+- もしなかった場合はtop_ratedに現在のqueueを入れる。<br>
+- queueに変化があった場所(var_bytes)があったというflagを立てる。<br>
+以下に戦略に入る前処理(CALIBRATIONを失敗しているdataであるとき)を載せておく。cliburation関数の方は公開したコメント付きソースコードでみてほしい。<br>
+```c
+/*******************************************
+   * CALIBRATION (only if failed earlier on) *
+   *******************************************/
+
+  if (queue_cur->cal_failed) {
+
+    u8 res = FAULT_TMOUT;
+
+    if (queue_cur->cal_failed < CAL_CHANCES) {// 3より小さい場合のみcalibrate_case関数を実行
+
+      res = calibrate_case(argv, queue_cur, in_buf, queue_cycle - 1, 0);
+
+      if (res == FAULT_ERROR)
+        FATAL("Unable to execute target application");
+
+    }
+
+    if (stop_soon || res != crash_mode) {
+      cur_skipped_paths++;// 現在のqueueをスキップしたのでスキップした数を増やす
+      goto abandon_entry;
+    }
+
+  }
+```
+### 戦略に入る前処理(dataの最小限までのtrimming)
+- trimとはdataの振る舞いに影響を与えない最小限のdataのtrimmingをおこなうものである。trim_case関数で行われる。これからtrim_case関数の説明をしていく。<br>
+- trim_caseではdataを16で割り、1024まで2ずつ割っていく。このとき、run_target関数を実行して、hashが変わったかを比べて変わっていたらcalibration関数と同様にupdate_bitmap_scoreを更新するが、割り切れるまでループを抜けないので現在のtrace_bitsをclean_traceに保存する。<br>
+- 割り切れる最小値まで割り続けるので必然的に「カバー範囲(trace_bits)に変化があった最小値の長さ」まで割られる。<br>
+以下にtrimmingの部分のソースコードを載せておく。trim_caseの部分は公開したコメント付きソースコードを見てほしい<br>
+```c
+  /************
+   * TRIMMING *
+   ************/
+
+  if (!dumb_mode && !queue_cur->trim_done) {
+
+    u8 res = trim_case(argv, queue_cur, in_buf);// queueをtrimして実行させる
+
+    if (res == FAULT_ERROR)
+      FATAL("Unable to execute target application");
+
+    if (stop_soon) {
+      cur_skipped_paths++;//放棄した数を増やす
+      goto abandon_entry;
+    }
+
+    /* Don't retry trimming, even if it failed. */
+// 失敗していたとしてもtrim_done flagをたてる
+    queue_cur->trim_done = 1;
+
+    if (len != queue_cur->len) len = queue_cur->len;//trimmingしてqueueの長さが違っていたら変更する
+
+  }
+
+  memcpy(out_buf, in_buf, len);//trimされているのであればdataの更新を行う(trimされていなかったら値は変わっていない)
+```
 ### 戦略に入る前処理(dataの点数付け)
 
+```c
+  /*********************
+   * PERFORMANCE SCORE *
+   *********************/
+
+  orig_perf = perf_score = calculate_score(queue_cur);//queueのscoreをつける
+
+  /* Skip right away if -d is given, if we have done deterministic fuzzing on
+     this entry ourselves (was_fuzzed), or if it has gone through deterministic
+     testing in earlier, resumed runs (passed_det). */
+
+  if (skip_deterministic || queue_cur->was_fuzzed || queue_cur->passed_det)
+    goto havoc_stage;
+
+  /* Skip deterministic fuzzing if exec path checksum puts this out of scope
+     for this master instance. */
+
+  if (master_max && (queue_cur->exec_cksum % master_max) != master_id - 1)
+    goto havoc_stage;
+
+  doing_det = 1;//deterministic fuzzing flagを立てる
+```
 ### SIMPLE BITFLIP(xor戦略)<br>
 ### ARITHMETIC INC/DEC(数字加算/数字減算戦略)<br>
 ### INTERESTING VALUES(固定値を挿入する戦略)<br>

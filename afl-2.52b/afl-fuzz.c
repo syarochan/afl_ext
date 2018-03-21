@@ -4529,7 +4529,7 @@ static u8 trim_case(char** argv, struct queue_entry* q, u8* in_buf) {
 
         /* Let's save a clean trace, which will be needed by
            update_bitmap_score once we're done with the trimming stuff. */
-//trimしたときにupdate_bitmap_scoreを一回実行する必要があるため、clean traceを保存する
+//trimしたときにupdate_bitmap_scoreを一回実行する必要があるため、clean traceに保存する
         if (!needs_write) {
 
           needs_write = 1;
@@ -5064,7 +5064,7 @@ static u8 fuzz_one(char** argv) {
 
   }
 
-  memcpy(out_buf, in_buf, len);//trimされているのであればdataの更新を行う(trimされていたら値は変わっていない)
+  memcpy(out_buf, in_buf, len);//trimされているのであればdataの更新を行う(trimされていなかったら値は変わっていない)
 
   /*********************
    * PERFORMANCE SCORE *
