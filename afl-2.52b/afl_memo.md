@@ -178,16 +178,36 @@ American Fuzzy Lopとしては「とにかく速く、正確に、より多く�
   doing_det = 1;//deterministic fuzzing flagを立てる
 ```
 ### SIMPLE BITFLIP(xor戦略)<br>
-- SIMPLE BITFLIPでは3つの段階にわけられてqueueを変異させていく。<br>
-- 最初の段階では1byteを1つの部分に対して、0x80でstage数に合わせて何bitか右にシフトさせてxorをしていく。<br>
-- 2段階目では1byteを2つの部分に対して、0x80でstage数に合わせて何bitか右にシフトさせてxorをしていく。<br>
-- 3段階では1byteを4つの部分に対して、0x80でstage数に合わせて何bitか右にシフトさせてxorをしていく。<br>
+- SIMPLE BITFLIPでは、bit単位のxor、byte単位でのxorの2つの戦略でqueueを変異させていく。<br>
+まずは、bit単位のxorの説明をしていく。
+- bit単位のxorでは3つの段階にわけられてqueueを変異させていく。<br>
+- 最初の段階では1byteを1つの部分に対して、0x80でstage数に合わせて右にbitシフトさせてxorをしていく。<br>
+- 2段階目では1byteを2つの部分に対して、0x80でstage数に合わせて右にbitシフトさせてxorをしていく。<br>
+- 3段階では1byteを4つの部分に対して、0x80でstage数に合わせて右にbitシフトさせてxorをしていく。<br>
+基本的には処理は3つとも同じであるため、最初の段階のSingle walking bitだけを説明する。<br>
 - stageごとに、common_fuzz_stuff関数が実行されてrun_target関数が実行される。run_targetの戻り値として返ってきた実行結果(fault)をsave_if_interesting関数を使って振り分ける。これからsave_if_interesting関数の説明をする。<br>
-- save_if_interesting関数を開始してすぐに-C option(crash_mode)の場合の処理に入る。今回はデフォルトの処理の説明をこれからしていく。
-- 
-- stageとき、それぞれの段階で自動辞書型(auto dictionary)の生成を行う<br>
-- auto dictionaryはstage数が7の倍数の時に条件文を突破して生成処理に入る。<br>
-  - 現在のtrace_bits
+- save_if_interesting関数を開始してすぐに-C option(crash_mode)の場合の処理に入る。今回はデフォルトの処理の説明をこれからしていく。<br>
+- switch文でFAULT_TMOUT、FAULT_CRASHでfaultの内容が振り分けられる。<br>
+  - FAULT_TMOUTのとき、実行ファイルはtime outエラーを起こして終了している。<br>
+    - time outを起こして終了した全体の数(total_tmouts)を加算する。<br>
+    - simplify_trace関数を使ってtrace_bitsのnot hit、hit(それぞれ0x01、0x80でマークされている)のマークづけを行う。<br>
+    - has_new_bitsを使って、trace_bitsとvirgin_tmout(time out error用の全体のカバー範囲)を比べて、見たことがないtime out(hit countの変更とnew tuple)がなければreturnをする<br>
+    - unique time outの数を増やす(unique_tmouts)<br>
+    - もし、ユーザーが設定したtime outが小さい場合はもう一度hang_tmout(1000ms)でrun_target関数を走らせる。<br>
+    - FAULT_CRASHであればFAULT_CRASHの処理にいく。FAULT_TMOUTであれば何もしないでreturnする。<br>
+  -  FAULT_CRASHのとき、実行ファイルはSEGVエラーを起こして終了している。<br>
+    - 処理はFAULT_TMOUTと変わらないため省略
+- (common_fuzz_stuff関数を抜けると)stageが8の倍数 - 1(8byte単位)とき、hashを生成して、それぞれの段階で自動辞書型(a_extras)の生成を行う<br>
+  - 現在のstageが一番最後かつ、cksumとprev_cksum(前回のチェックサム)が一致するときは次の処理に入る。<br>
+    - out_bufの一番最後の文字をa_collectに入れる。<br>
+    - a_len(a_collectの長さ)の長さが3以上32以下であれば、maybe_add_auto関数を実行して自動辞書型(a_extras)の生成を行う<br>
+  - cksumとprev_cksum(前回のチェックサム)が一致しないとき<br>
+    - a_len(a_collectの長さ)の長さが3以上32以下であれば、maybe_add_auto関数を実行して自動辞書型(a_extras)の生成を行う<br>
+    - prev_cksumをcksumに更新する。<br>
+  - 現在のqueueのcksumと生成したcksumを比べて一致しなかった場合<br>
+    - a_len(a_collectの長さ)の長さが32より下であれば、out_bufの一番最後の文字をa_collectに入れる。a_lenを加算する。<br>
+- ループ処理を抜けるとSingle walking bitで見つけた、条件分岐先(queued_paths)、実行エラー(unique_crashes)を加算する。<br>
+以下はそのソースコードに当たる部分である。save_if_interesting関数、simplify_trace関数、common_fuzz_stuff関数、maybe_add_auto関数、2段階目、3段階目は公開したコメント付きソースコードを見てほしい<br>
 ```c
   /*********************************************
    * SIMPLE BITFLIP (+dictionary construction) *
@@ -271,7 +291,13 @@ American Fuzzy Lopとしては「とにかく速く、正確に、より多く�
   stage_finds[STAGE_FLIP1]  += new_hit_cnt - orig_hit_cnt;//stage_flip1でみつけたpathとcrashesの数を加算
   stage_cycles[STAGE_FLIP1] += stage_max;//stageを実行した回数を加算
 ```
+次にbyte単位のxorの説明をしていく。<br>
+- byte単位でのxorでは1byte単位、2bytes単位、4bytes単位の3つでqueueを変異させていく。<br>
+- 今回は1byte単位の説明だけをしていく。<br>
+
+
 ### ARITHMETIC INC/DEC(数字加算/数字減算戦略)<br>
+
 ### INTERESTING VALUES(固定値を挿入する戦略)<br>
 ### DICTIONARY STUFF(辞書型のdataを挿入する戦略)<br>
 ### RANDOM HAVOC(ランダムに用意された戦略を選ぶ戦略)<br>

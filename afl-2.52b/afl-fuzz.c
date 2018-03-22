@@ -929,7 +929,7 @@ static inline u8 has_new_bits(u8* virgin_map) {
 
       }
 
-      *virgin &= ~*current;//curentを反転させてandをとったものをvirginに入れる(virgin bitのclear)
+      *virgin &= ~*current;//curentを反転させてandをとったものをvirginに入れる(virgin bitのclearをして同じものに当たらないようにする)
 
     }
 
@@ -5146,7 +5146,7 @@ static u8 fuzz_one(char** argv) {
 
       */
 
-    if (!dumb_mode && (stage_cur & 7) == 7) {//stage_curが7の倍数であれば
+    if (!dumb_mode && (stage_cur & 7) == 7) {//stage_curが8の倍数 - 1(8byte単位)であれば
 
       u32 cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);
 
@@ -5308,7 +5308,7 @@ static u8 fuzz_one(char** argv) {
       else
         cksum = ~queue_cur->exec_cksum;//128byte以上ではない場合はチェックサムを反転させたものを生成
 
-      if (cksum != queue_cur->exec_cksum) {//生成したチェックサムが違った場合、eff_mapに現在のstageのflagをつける
+      if (cksum != queue_cur->exec_cksum) {//128byte以上で生成したチェックサム、反転させたqueueのチェックサムがqueueのチェックサムと違った場合、eff_mapに現在のstageのflagをつける
         eff_map[EFF_APOS(stage_cur)] = 1;
         eff_cnt++;
       }
@@ -5357,7 +5357,7 @@ static u8 fuzz_one(char** argv) {
   for (i = 0; i < len - 1; i++) {
 
     /* Let's consult the effector map... */
-//eff_mapが2byteとも0だった場合は価値がないので飛ばして次に行く
+//eff_mapが2byteとも0だった場合は前の戦略でいじっていない部分なので飛ばして次に行く
     if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
       stage_max--;
       continue;
