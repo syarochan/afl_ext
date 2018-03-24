@@ -4764,13 +4764,13 @@ static u8 could_be_bitflip(u32 xor_val) {
   while (!(xor_val & 1)) { sh++; xor_val >>= 1; }
 
   /* 1-, 2-, and 4-bit patterns are OK anywhere. */
-//1,2,4bitはreturn 1
+//1,2,4bitのパターンはreturn 1
   if (xor_val == 1 || xor_val == 3 || xor_val == 15) return 1;
 
   /* 8-, 16-, and 32-bit patterns are OK only if shift factor is
      divisible by 8, since that's the stepover for these ops. */
 
-  if (sh & 7) return 0;//shに下位7ビットの数字があったらこれより先に行っても意味がないのでreturn 0
+  if (sh & 7) return 0;//shに下位7ビットの数字があったらこれより先に行っても条件文比べる意味がないのでreturn 0
 
   if (xor_val == 0xff || xor_val == 0xffff || xor_val == 0xffffffff)
     return 1;

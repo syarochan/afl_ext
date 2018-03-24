@@ -294,10 +294,94 @@ American Fuzzy Lopとしては「とにかく速く、正確に、より多く�
 次にbyte単位のxorの説明をしていく。<br>
 - byte単位でのxorでは1byte単位、2bytes単位、4bytes単位の3つでqueueを変異させていく。<br>
 - 今回は1byte単位の説明だけをしていく。<br>
+- ループに入ったすぐにout_bufの1byteを0xffで反転する。<br>
+- common_fuzz_stuff関数でrun_target関数で実行ファイルを走らせる。<br>
+- stageごとに変更を加えた場所にマーク付けを行う(eff_map)部分にマーク付けが行われていなかった場合<br>
+  - dataの長さが128byte以上であればhashの生成を行う(ただし、dumb_modeでないとき)<br>
+  - それ以外の時はqueueに保存されているチェックサムを反転させた値をcksumに入れる。<br>
+  - cksumとqueueに保存されているチェックサムが違った場合eff_mapにマーク付けを行い、eff_mapにマーク付けされている数(eff_cnt)を増やす。<br>
+- 反転させていたoutbufの1byteを元に戻す。<br>
+- ループを抜けてすぐに、eff_mapにマーク付けされている数が90％以上あれば、lenを8byte単位にした状態でeff_mapの先頭からマーク付けを行う。<br>
+- 8byteごとにマーク付けを行った数(blocks_eff_select)だけ加算する。<br>
+- 全体の8byteごとにマーク付けを行った数(blocks_eff_total)を加算する<br>
+1byte単位のxorの部分だけのソースコードを載せる。残りの部分は公開したソースコードで確認してほしい。<br>
+```c
+  /* Walking byte. */
 
+  stage_name  = "bitflip 8/8";
+  stage_short = "flip8";
+  stage_max   = len;
 
+  orig_hit_cnt = new_hit_cnt;
+
+  for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
+
+    stage_cur_byte = stage_cur;
+
+    out_buf[stage_cur] ^= 0xFF;//1byte反転させる
+
+    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+
+    /* We also use this stage to pull off a simple trick: we identify
+       bytes that seem to have no effect on the current execution path
+       even when fully flipped - and we skip them during more expensive
+       deterministic stages, such as arithmetics or known ints. */
+
+    if (!eff_map[EFF_APOS(stage_cur)]) {//現在のstageがeff_mapになかった場合
+
+      u32 cksum;
+
+      /* If in dumb mode or if the file is very short, just flag everything
+         without wasting time on checksums. */
+
+      if (!dumb_mode && len >= EFF_MIN_LEN)
+        cksum = hash32(trace_bits, MAP_SIZE, HASH_CONST);// 現在のqueueの長さが128byte以上であったら
+      else
+        cksum = ~queue_cur->exec_cksum;//128byte以上ではない場合はチェックサムを反転させたものを生成
+
+      if (cksum != queue_cur->exec_cksum) {//128byte以上で生成したチェックサム、反転させたqueueのチェックサムがqueueのチェックサムと違った場合、eff_mapに現在のstageのflagをつける
+        eff_map[EFF_APOS(stage_cur)] = 1;
+        eff_cnt++;
+      }
+
+    }
+
+    out_buf[stage_cur] ^= 0xFF;//元に戻す
+
+  }
+
+  /* If the effector map is more than EFF_MAX_PERC dense, just flag the
+     whole thing as worth fuzzing, since we wouldn't be saving much time
+     anyway. */
+//密集している数が90％より上であれば
+  if (eff_cnt != EFF_ALEN(len) &&
+      eff_cnt * 100 / EFF_ALEN(len) > EFF_MAX_PERC) {//lenの8byte単位の個数とlen AND 0x03の値(lenが1byteから7byte用)を足した値をeff_cntと比べるかつ、
+
+    memset(eff_map, 1, EFF_ALEN(len));//8byte単位にアラインメントしたものをeff_mapの先頭から埋めていく
+
+    blocks_eff_select += EFF_ALEN(len);//埋めた数だけ加算する
+
+  } else {
+
+    blocks_eff_select += eff_cnt;//それ以外であれば現在のeff_cntを加算する
+
+  }
+
+  blocks_eff_total += EFF_ALEN(len);
+
+  new_hit_cnt = queued_paths + unique_crashes;
+
+  stage_finds[STAGE_FLIP8]  += new_hit_cnt - orig_hit_cnt;
+  stage_cycles[STAGE_FLIP8] += stage_max;
+```
 ### ARITHMETIC INC/DEC(数字加算/数字減算戦略)<br>
-
+ここでの戦略では、1から35までの数字を順番に加算・減算をやっていく。<br>
+- 加算と減算は8bit、16bit、32bitの3つの方法で行われる。<br>
+- eff_mapにマーク付けがされていないところでは、この戦略は行わない。<br>
+- 前回の戦略であるbitflipができなかったものに対して(could_be_bitflip関数を使って判断をする)、この戦略を行っていく。<br>
+- 16bit、32bitはlittle endianとbig endianを考慮した戦略になっている。<br>
+今回は、16bitでの説明をしていく。<br>
+- dataの長さが、2byteない状態であればARITHMETIC INC/DEC戦略をskipする。
 ### INTERESTING VALUES(固定値を挿入する戦略)<br>
 ### DICTIONARY STUFF(辞書型のdataを挿入する戦略)<br>
 ### RANDOM HAVOC(ランダムに用意された戦略を選ぶ戦略)<br>
