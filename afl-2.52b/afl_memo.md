@@ -379,10 +379,117 @@ American Fuzzy Lopとしては「とにかく速く、正確に、より多く�
 - 加算と減算は8bit、16bit、32bitの3つの方法で行われる。<br>
 - eff_mapにマーク付けがされていないところでは、この戦略は行わない。<br>
 - 前回の戦略であるbitflipができなかったものに対して(could_be_bitflip関数を使って判断をする)、この戦略を行っていく。<br>
+- できなかったものに対してやる理由は、前戦略でのbitflipと同じdataを実行しないようにするためである。<br>
 - 16bit、32bitはlittle endianとbig endianを考慮した戦略になっている。<br>
 今回は、16bitでの説明をしていく。<br>
-- dataの長さが、2byteない状態であればARITHMETIC INC/DEC戦略をskipする。
+- dataの長さが、2byteない状態であればARITHMETIC INC/DEC戦略をskipする。<br>
+- stage_max(ループを行う最大回数)は加算、減算の2つのlittle endian用とbig endian用の4つ分を最大回数に設定をする。<br>
+- out_bufを2byteずつorigに入れて、eff_mapに連続でマーク付けを行われているかを確認する。マークづけされていなければskipする。<br>
+- マークされている場合、ARITHMETIC(1から35)までを順番にlittle endianとbig endianの加算と減算を行っていく。<br>
+- 最初はlittle endian<br>
+  - 加算するときにoverflowを起こしていないかをチェックしたあとに、could_be_bitflip関数を使ってbitflipができないことを確認する。これらの条件を突破したらcommon_fuzz_stuff関数を実行する。<br>
+  - 減算するときにunderflowを起こしていないかをチェックしたあとに、could_be_bitflip関数を使ってbitflipができないことを確認する。これらの条件を突破したらcommon_fuzz_stuff関数を実行する<br>
+- 次はbig endian<br>
+  - 処理はlittle endianと変わらない。<br>
+  - 変わるのはSWAP関数を使ってbig endianにするくらい。<br>
+以下に、該当部分である16bitの戦略部分である。その他の部分は公開したソースコードを確認してほしい。<br>
+```c
+ if (len < 2) goto skip_arith;
+
+  stage_name  = "arith 16/8";
+  stage_short = "arith16";
+  stage_cur   = 0;
+  stage_max   = 4 * (len - 1) * ARITH_MAX;//4はINC/DECのlittle endianとBig endian用
+
+  orig_hit_cnt = new_hit_cnt;
+
+  for (i = 0; i < len - 1; i++) {
+
+    u16 orig = *(u16*)(out_buf + i);
+
+    /* Let's consult the effector map... */
+
+    if (!eff_map[EFF_APOS(i)] && !eff_map[EFF_APOS(i + 1)]) {
+      stage_max -= 4 * ARITH_MAX;
+      continue;
+    }
+
+    stage_cur_byte = i;
+
+    for (j = 1; j <= ARITH_MAX; j++) {
+//SWAP16はlittle endian対策下位1byteと上位1byteを入れ替える(big endian用)
+      u16 r1 = orig ^ (orig + j),
+          r2 = orig ^ (orig - j),
+          r3 = orig ^ SWAP16(SWAP16(orig) + j),
+          r4 = orig ^ SWAP16(SWAP16(orig) - j);
+
+      /* Try little endian addition and subtraction first. Do it only
+         if the operation would affect more than one byte (hence the 
+         & 0xff overflow checks) and if it couldn't be a product of
+         a bitflip. */
+
+      stage_val_type = STAGE_VAL_LE; 
+
+      if ((orig & 0xff) + j > 0xff && !could_be_bitflip(r1)) {//orig(2byte)を0xff(下位1byteがlittle endianなので上位にくる)と比べてoverflowしていないかチェックをする
+
+        stage_cur_val = j;
+        *(u16*)(out_buf + i) = orig + j;
+
+        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        stage_cur++;
+ 
+      } else stage_max--;
+
+      if ((orig & 0xff) < j && !could_be_bitflip(r2)) {//underflowチェックを行う下位1byteがjよりも小さかったら
+
+        stage_cur_val = -j;
+        *(u16*)(out_buf + i) = orig - j;
+
+        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        stage_cur++;
+
+      } else stage_max--;
+
+      /* Big endian comes next. Same deal. */
+
+      stage_val_type = STAGE_VAL_BE;//次はbig endianにして考える
+
+
+      if ((orig >> 8) + j > 0xff && !could_be_bitflip(r3)) {
+
+        stage_cur_val = j;
+        *(u16*)(out_buf + i) = SWAP16(SWAP16(orig) + j);
+
+        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        stage_cur++;
+
+      } else stage_max--;
+
+      if ((orig >> 8) < j && !could_be_bitflip(r4)) {
+
+        stage_cur_val = -j;
+        *(u16*)(out_buf + i) = SWAP16(SWAP16(orig) - j);
+
+        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        stage_cur++;
+
+      } else stage_max--;
+
+      *(u16*)(out_buf + i) = orig;
+
+    }
+
+  }
+
+  new_hit_cnt = queued_paths + unique_crashes;
+
+  stage_finds[STAGE_ARITH16]  += new_hit_cnt - orig_hit_cnt;
+  stage_cycles[STAGE_ARITH16] += stage_max;
+
+```
 ### INTERESTING VALUES(固定値を挿入する戦略)<br>
+INTERESTING VALUESは、固定値を挿入するような戦略で、8bit,16bit,32bitの戦略で、それぞれの大きさでoverflow、underflow、off-by-one、比較するときにミスしそうな値を使ってfuzzingを行うようなものである。<br>
+- 
 ### DICTIONARY STUFF(辞書型のdataを挿入する戦略)<br>
 ### RANDOM HAVOC(ランダムに用意された戦略を選ぶ戦略)<br>
 ### SPLICING(dataをspliteする戦略)<br>

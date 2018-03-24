@@ -4752,7 +4752,7 @@ static u32 calculate_score(struct queue_entry* q) {
    deterministic fuzzing operations that follow bit flips. We also
    return 1 if xor_val is zero, which implies that the old and attempted new
    values are identical and the exec would be a waste of time. */
-
+// bitflipはxor処理をする戦略であるため、xorした値を入れてbitflipできるかどうかを確認する。
 static u8 could_be_bitflip(u32 xor_val) {
 
   u32 sh = 0;
@@ -5525,8 +5525,9 @@ skip_bitflip:
          a bitflip. */
 
       stage_val_type = STAGE_VAL_LE; 
-
-      if ((orig & 0xff) + j > 0xff && !could_be_bitflip(r1)) {//orig(2byte)を0xff(下位1byteがlittle endianなので上位にくる)と比べてoverflowしていないかチェックをする
+// colud_be_bitflipできたらskip(同じqueueをfuzzingするのは無駄であるため)
+//orig(2byte)を0xff(下位1byteがlittle endianなので上位にくる)と比べてoverflowしていないかチェックをする
+      if ((orig & 0xff) + j > 0xff && !could_be_bitflip(r1)) {
 
         stage_cur_val = j;
         *(u16*)(out_buf + i) = orig + j;
@@ -5709,7 +5710,7 @@ skip_arith:
       /* Skip if the value could be a product of bitflips or arithmetics. */
 
       if (could_be_bitflip(orig ^ (u8)interesting_8[j]) ||
-          could_be_arith(orig, (u8)interesting_8[j], 1)) {//できたらskip
+          could_be_arith(orig, (u8)interesting_8[j], 1)) {//できたらskip(同じqueueをfuzzingするのは無駄であるため)
         stage_max--;
         continue;
       }
