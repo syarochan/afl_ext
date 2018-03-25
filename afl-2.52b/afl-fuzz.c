@@ -5905,8 +5905,8 @@ skip_interest:
          skip them if there's no room to insert the payload, if the token
          is redundant, or if its entire span has no bytes set in the effector
          map. */
-// extras_cntが200超えていたとしても、ランダム化させて、低かった場合は次の条件文に行く
-// out_butと同じ値、eff_mapにextrasの長さ分末尾から探した時にflagが一つでも立っていた時はスキップ
+// extras_cntが200超えていたとしても、extras_cntを使ってランダム化させて、200より低かった場合は次の条件に行く
+// 辞書型のlenがout_bufのlenよりも大きい時、out_butと同じ値、eff_mapにextrasの長さ分末尾から探した時にflagが一つでも立っていない時、の3つのうちどれかに、あてはまった時はスキップ
       if ((extras_cnt > MAX_DET_EXTRAS && UR(extras_cnt) >= MAX_DET_EXTRAS) ||
           extras[j].len > len - i ||
           !memcmp(extras[j].data, out_buf + i, extras[j].len) ||
@@ -5974,7 +5974,7 @@ skip_interest:
     }
 
     /* Copy head */
-    ex_tmp[i] = out_buf[i];//out_bufをex_tmpの先頭につける
+    ex_tmp[i] = out_buf[i];//out_bufをex_tmpの先頭につける(ループが進むに連れてex_tmpの先頭からout_bufに変わっていく)
 
   }
 
@@ -5988,7 +5988,7 @@ skip_interest:
 skip_user_extras:
 
   if (!a_extras_cnt) goto skip_extras;
-// 自動で生成した方
+// 自動で生成した方でout_bufのoverwriteを行う
   stage_name  = "auto extras (over)";
   stage_short = "ext_AO";
   stage_cur   = 0;
@@ -6094,7 +6094,7 @@ havoc_stage:
     stage_cur_val = use_stacking;
  
     for (i = 0; i < use_stacking; i++) {
-// extras_cnt + a_extras_cntに応じてtrueなら2,falseなら0を選んで15を足して0から16の範囲でランダム化
+// extras_cnt + a_extras_cntがあるのであればtrueで2をたして0から16の範囲でランダム化,falseなら0を選んで15を足して0から14の範囲でランダム化
       switch (UR(15 + ((extras_cnt + a_extras_cnt) ? 2 : 0))) {
 //byte単位でbit反転処理を行う
         case 0:
@@ -6103,7 +6103,7 @@ havoc_stage:
 
           FLIP_BIT(out_buf, UR(temp_len << 3));//1byte単位でのbit反転
           break;
-//ランダムに選択された4byteのintresting valueを挿入する戦略
+//ランダムに選択された1byteのintresting valueを挿入する戦略
         case 1: 
 
           /* Set byte to interesting value. */
@@ -6294,7 +6294,7 @@ havoc_stage:
             break;
 
           }
-//out_bufにコピーまたはoutbufにinsert戦略
+//out_bufにout_buf自身を使ってコピーまたはinsert戦略
         case 13:
 
           if (temp_len + HAVOC_BLK_XL < MAX_FILE) {//1KBを超えていない時
@@ -6344,7 +6344,7 @@ havoc_stage:
           }
 
           break;
-//out_buf書き換え戦略
+//out_bufにout_buf自身を使って書き換え戦略
         case 14: {
 
             /* Overwrite bytes with a randomly selected chunk (75%) or fixed
@@ -6480,7 +6480,7 @@ havoc_stage:
     /* If we're finding new stuff, let's run for a bit longer, limits
        permitting. */
 
-    if (queued_paths != havoc_queued) {//hovoc_queued(初期値はqueued_pathsと同じ)の値と一致しなかった時
+    if (queued_paths != havoc_queued) {//havoc_queued(初期値はqueued_pathsと同じ)の値と一致しなかった時
 
       if (perf_score <= HAVOC_MAX_MULT * 100) {//HAVOCの最大スコアよりもperf_scoreが小さい場合
         stage_max  *= 2;//stageを2倍にして長くする
