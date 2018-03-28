@@ -291,6 +291,7 @@ American Fuzzy Lopとしては「とにかく速く、正確に、より多く�
   stage_finds[STAGE_FLIP1]  += new_hit_cnt - orig_hit_cnt;//stage_flip1でみつけたpathとcrashesの数を加算
   stage_cycles[STAGE_FLIP1] += stage_max;//stageを実行した回数を加算
 ```
+
 次にbyte単位のxorの説明をしていく。<br>
 - byte単位でのxorでは1byte単位、2bytes単位、4bytes単位の3つでqueueを変異させていく。<br>
 - 今回は1byte単位の説明だけをしていく。<br>
